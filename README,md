@@ -1,0 +1,10 @@
+A recycling plant management system
+1. they have a set of materials(can be custom added,removed etc and price can be set)
+2. when they are buying items they can click on item and weight this will show the calculated price but they can change the total price as needed
+3. many items can be bought within a transaction
+4. when buying things I can tag the supplier name(not mandatroty)
+5. for suppliers i can collect name,phone number
+6. I need separate tab called expenses where I can add the expenses (for expenses description(optional),amount and Tag(can be created or chosen from already created)
+7. two hardcoded users 1.super admin and 2.normal admin(normal admin can only add records cant delete them
+
+for now we will use react,express/nodejs and mongodb and once things are finalized we can do it with postgreqsql 
