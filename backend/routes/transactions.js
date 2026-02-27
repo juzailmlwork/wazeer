@@ -5,7 +5,9 @@ const auth = require('../middleware/auth');
 
 router.get('/', auth, async (req, res) => {
   try {
-    const transactions = await Transaction.find()
+    const filter = {};
+    if (req.query.supplier) filter.supplier = req.query.supplier;
+    const transactions = await Transaction.find(filter)
       .populate('supplier', 'name phone')
       .sort({ createdAt: -1 });
     res.json(transactions);

@@ -166,9 +166,9 @@ function SupplierDetailModal({ supplier, onClose }) {
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth()); // 0-indexed
 
   useEffect(() => {
-    api.get('/transactions').then(({ data }) => {
-      setTransactions(data.filter((tx) => tx.supplier?._id === supplier._id));
-    }).finally(() => setLoading(false));
+    api.get(`/transactions?supplier=${supplier._id}`)
+      .then(({ data }) => setTransactions(data))
+      .finally(() => setLoading(false));
   }, [supplier._id]);
 
   const monthsWithData = useMemo(() => (
