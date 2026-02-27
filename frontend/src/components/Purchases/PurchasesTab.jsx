@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import React from 'react';
 import api from '../../api/index.js';
+import { exportPurchasesPDF } from '../../utils/pdf.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -176,7 +177,17 @@ export default function PurchasesTab() {
             {filterSupplier && <span style={{ color: 'var(--text-muted)', fontSize: 13, fontWeight: 400, marginLeft: 8 }}>· {selectedSupplier?.name}</span>}
             {filterMaterial && <span style={{ color: 'var(--primary)', fontSize: 13, fontWeight: 400, marginLeft: 8 }}>· {selectedMaterial?.name}</span>}
           </h2>
-          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{filtered.length} records</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{filtered.length} records</span>
+            {filtered.length > 0 && (
+              <button
+                className="btn-ghost btn-sm"
+                onClick={() => exportPurchasesPDF({ filtered, filterMaterial, selectedMaterial, filterSupplier, selectedSupplier, period, totalValue, totalWeight })}
+              >
+                ↓ PDF
+              </button>
+            )}
+          </div>
         </div>
 
         {loading ? (

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { exportSupplierPDF } from '../../utils/pdf.js';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -234,7 +235,17 @@ function SupplierDetailModal({ supplier, onClose }) {
             <h2 style={{ fontSize: 18, fontWeight: 700 }}>{supplier.name}</h2>
             {supplier.phone && <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 2 }}>{supplier.phone}</p>}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--text-muted)', padding: '0 4px' }}>×</button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {monthTxs.length > 0 && (
+              <button
+                className="btn-ghost btn-sm"
+                onClick={() => exportSupplierPDF({ supplier, itemRows, monthGrandTotal, monthGrandWeight, monthTxs, selectedMonth, selectedYear })}
+              >
+                ↓ PDF
+              </button>
+            )}
+            <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--text-muted)', padding: '0 4px' }}>×</button>
+          </div>
         </div>
 
         {/* Month picker */}
