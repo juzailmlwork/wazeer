@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
@@ -171,40 +171,49 @@ function SupplierDetailModal({ supplier, onClose }) {
     }).finally(() => setLoading(false));
   }, [supplier._id]);
 
-  // Get all year-month combos that have data
-  const monthsWithData = [...new Set(
-    transactions.map((tx) => {
+  const monthsWithData = useMemo(() => (
+    [...new Set(
+      transactions.map((tx) => {
+        const d = new Date(tx.createdAt);
+        return `${d.getFullYear()}-${d.getMonth()}`;
+      })
+    )].map((key) => {
+      const [y, m] = key.split('-');
+      return { year: Number(y), month: Number(m) };
+    }).sort((a, b) => b.year - a.year || b.month - a.month)
+  ), [transactions]);
+
+  const years = useMemo(
+    () => [...new Set(monthsWithData.map((m) => m.year))],
+    [monthsWithData]
+  );
+
+  const monthTxs = useMemo(
+    () => transactions.filter((tx) => {
       const d = new Date(tx.createdAt);
-      return `${d.getFullYear()}-${d.getMonth()}`;
-    })
-  )].map((key) => {
-    const [y, m] = key.split('-');
-    return { year: Number(y), month: Number(m) };
-  }).sort((a, b) => b.year - a.year || b.month - a.month);
+      return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
+    }),
+    [transactions, selectedYear, selectedMonth]
+  );
 
-  // Filter transactions for selected month
-  const monthTxs = transactions.filter((tx) => {
-    const d = new Date(tx.createdAt);
-    return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
-  });
-
-  // Aggregate by material
-  const itemMap = {};
-  monthTxs.forEach((tx) => {
-    tx.items.forEach((item) => {
-      const key = item.materialName;
-      if (!itemMap[key]) itemMap[key] = { name: key, totalWeight: 0, totalAmount: 0, count: 0 };
-      itemMap[key].totalWeight += item.weight || 0;
-      itemMap[key].totalAmount += item.totalPrice || 0;
-      itemMap[key].count += 1;
+  const { itemRows, monthGrandTotal, monthGrandWeight } = useMemo(() => {
+    const itemMap = {};
+    monthTxs.forEach((tx) => {
+      tx.items.forEach((item) => {
+        const key = item.materialName;
+        if (!itemMap[key]) itemMap[key] = { name: key, totalWeight: 0, totalAmount: 0, count: 0 };
+        itemMap[key].totalWeight += item.weight || 0;
+        itemMap[key].totalAmount += item.totalPrice || 0;
+        itemMap[key].count += 1;
+      });
     });
-  });
-  const itemRows = Object.values(itemMap).sort((a, b) => b.totalAmount - a.totalAmount);
-  const monthGrandTotal = itemRows.reduce((sum, r) => sum + r.totalAmount, 0);
-  const monthGrandWeight = itemRows.reduce((sum, r) => sum + r.totalWeight, 0);
-
-  // Available years for the year selector
-  const years = [...new Set(monthsWithData.map((m) => m.year))];
+    const rows = Object.values(itemMap).sort((a, b) => b.totalAmount - a.totalAmount);
+    return {
+      itemRows: rows,
+      monthGrandTotal: rows.reduce((sum, r) => sum + r.totalAmount, 0),
+      monthGrandWeight: rows.reduce((sum, r) => sum + r.totalWeight, 0),
+    };
+  }, [monthTxs]);
 
   return (
     <div
@@ -294,7 +303,7 @@ function SupplierDetailModal({ supplier, onClose }) {
               </div>
 
               {/* Item breakdown table */}
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: 12 }}>
+              <h3 style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Breakdown by Item — {MONTH_NAMES[selectedMonth]} {selectedYear}
               </h3>
               <table>

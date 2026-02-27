@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
@@ -115,26 +115,29 @@ export default function ExpensesTab() {
     }
   };
 
-  // Date filter
-  const dateFiltered = expenses.filter((e) => {
-    if (period === 'all') return true;
-    const d = new Date(e.createdAt).toISOString().slice(0, 10);
-    if (period === 'today') return d === todayStr();
-    if (period === 'month') {
-      const { from, to } = thisMonthRange();
-      return inRange(d, from, to);
-    }
-    if (period === 'custom') return inRange(d, customFrom, customTo);
-    return true;
-  });
+  const filtered = useMemo(() => {
+    const today = todayStr();
+    const dateFiltered = expenses.filter((e) => {
+      if (period === 'all') return true;
+      const d = new Date(e.createdAt).toISOString().slice(0, 10);
+      if (period === 'today') return d === today;
+      if (period === 'month') { const { from, to } = thisMonthRange(); return inRange(d, from, to); }
+      if (period === 'custom') return inRange(d, customFrom, customTo);
+      return true;
+    });
+    return filterTag
+      ? dateFiltered.filter((e) => e.tags?.some((t) => t._id === filterTag))
+      : dateFiltered;
+  }, [expenses, period, customFrom, customTo, filterTag]);
 
-  // Tag filter
-  const filtered = filterTag
-    ? dateFiltered.filter((e) => e.tags?.some((t) => t._id === filterTag))
-    : dateFiltered;
-
-  const totalFiltered = filtered.reduce((sum, e) => sum + e.amount, 0);
-  const selectedTagObj = tags.find((t) => t._id === filterTag);
+  const totalFiltered = useMemo(
+    () => filtered.reduce((sum, e) => sum + e.amount, 0),
+    [filtered]
+  );
+  const selectedTagObj = useMemo(
+    () => tags.find((t) => t._id === filterTag),
+    [tags, filterTag]
+  );
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, alignItems: 'start' }}>
@@ -202,12 +205,9 @@ export default function ExpensesTab() {
             <select
               value=""
               onChange={(e) => {
-                if (e.target.value === '__new__') {
-                  setShowTagForm(true);
-                } else if (e.target.value) {
-                  toggleTag(e.target.value);
-                }
-                e.target.value = '';
+                const val = e.target.value;
+                if (val === '__new__') setShowTagForm(true);
+                else if (val) toggleTag(val);
               }}
             >
               <option value="">Select a tag...</option>

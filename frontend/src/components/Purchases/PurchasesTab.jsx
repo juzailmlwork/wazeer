@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import React from 'react';
 import api from '../../api/index.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -53,42 +54,47 @@ export default function PurchasesTab() {
 
   const toggleExpand = (id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
-  // Date filter
-  const dateFiltered = transactions.filter((tx) => {
-    if (period === 'all') return true;
-    const txDate = new Date(tx.createdAt).toISOString().slice(0, 10);
-    if (period === 'today') return txDate === today();
-    if (period === 'month') { const { from, to } = thisMonthRange(); return inRange(txDate, from, to); }
-    if (period === 'custom') return inRange(txDate, customFrom, customTo);
-    return true;
-  });
+  const filtered = useMemo(() => {
+    const todayStr = today();
+    const dateFiltered = transactions.filter((tx) => {
+      if (period === 'all') return true;
+      const txDate = new Date(tx.createdAt).toISOString().slice(0, 10);
+      if (period === 'today') return txDate === todayStr;
+      if (period === 'month') { const { from, to } = thisMonthRange(); return inRange(txDate, from, to); }
+      if (period === 'custom') return inRange(txDate, customFrom, customTo);
+      return true;
+    });
+    const supplierFiltered = filterSupplier
+      ? dateFiltered.filter((tx) => tx.supplier?._id === filterSupplier)
+      : dateFiltered;
+    return filterMaterial
+      ? supplierFiltered.filter((tx) => tx.items.some((item) => item.material === filterMaterial))
+      : supplierFiltered;
+  }, [transactions, period, customFrom, customTo, filterSupplier, filterMaterial]);
 
-  // Supplier filter
-  const supplierFiltered = filterSupplier
-    ? dateFiltered.filter((tx) => tx.supplier?._id === filterSupplier)
-    : dateFiltered;
+  const selectedMaterial = useMemo(
+    () => materials.find((m) => m._id === filterMaterial),
+    [materials, filterMaterial]
+  );
+  const selectedSupplier = useMemo(
+    () => suppliers.find((s) => s._id === filterSupplier),
+    [suppliers, filterSupplier]
+  );
 
-  // Item filter
-  const filtered = filterMaterial
-    ? supplierFiltered.filter((tx) => tx.items.some((item) => item.material === filterMaterial))
-    : supplierFiltered;
-
-  const selectedMaterial = materials.find((m) => m._id === filterMaterial);
-  const selectedSupplier = suppliers.find((s) => s._id === filterSupplier);
-
-  const totalValue = filterMaterial
-    ? filtered.reduce((sum, tx) => {
+  const { totalValue, totalWeight } = useMemo(() => {
+    if (filterMaterial) {
+      let value = 0, weight = 0;
+      filtered.forEach((tx) => {
         const match = tx.items.find((item) => item.material === filterMaterial);
-        return sum + (match ? match.totalPrice : 0);
-      }, 0)
-    : filtered.reduce((sum, tx) => sum + tx.grandTotal, 0);
-
-  const totalWeight = filterMaterial
-    ? filtered.reduce((sum, tx) => {
-        const match = tx.items.find((item) => item.material === filterMaterial);
-        return sum + (match ? match.weight : 0);
-      }, 0)
-    : null;
+        if (match) { value += match.totalPrice; weight += match.weight; }
+      });
+      return { totalValue: value, totalWeight: weight };
+    }
+    return {
+      totalValue: filtered.reduce((sum, tx) => sum + tx.grandTotal, 0),
+      totalWeight: null,
+    };
+  }, [filtered, filterMaterial]);
 
   const hasFilters = filterMaterial || filterSupplier;
 
@@ -126,33 +132,18 @@ export default function PurchasesTab() {
           )}
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <select
-              value={filterSupplier}
-              onChange={(e) => setFilterSupplier(e.target.value)}
-              style={{ width: 180 }}
-            >
+            <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)} style={{ width: 180 }}>
               <option value="">All Suppliers</option>
-              {suppliers.map((s) => (
-                <option key={s._id} value={s._id}>{s.name}</option>
-              ))}
+              {suppliers.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
             </select>
 
-            <select
-              value={filterMaterial}
-              onChange={(e) => setFilterMaterial(e.target.value)}
-              style={{ width: 180 }}
-            >
+            <select value={filterMaterial} onChange={(e) => setFilterMaterial(e.target.value)} style={{ width: 180 }}>
               <option value="">All Items</option>
-              {materials.map((m) => (
-                <option key={m._id} value={m._id}>{m.name}</option>
-              ))}
+              {materials.map((m) => <option key={m._id} value={m._id}>{m.name}</option>)}
             </select>
 
             {hasFilters && (
-              <button
-                className="btn-ghost btn-sm"
-                onClick={() => { setFilterMaterial(''); setFilterSupplier(''); }}
-              >
+              <button className="btn-ghost btn-sm" onClick={() => { setFilterMaterial(''); setFilterSupplier(''); }}>
                 Clear
               </button>
             )}
@@ -212,8 +203,8 @@ export default function PurchasesTab() {
                 const displayTotal = matchedItem ? matchedItem.totalPrice : tx.grandTotal;
 
                 return (
-                  <>
-                    <tr key={tx._id} style={{ cursor: 'pointer' }} onClick={() => toggleExpand(tx._id)}>
+                  <React.Fragment key={tx._id}>
+                    <tr style={{ cursor: 'pointer' }} onClick={() => toggleExpand(tx._id)}>
                       <td style={{ color: 'var(--text-muted)', fontSize: 12, paddingLeft: 16 }}>
                         {expanded[tx._id] ? '▼' : '▶'}
                       </td>
@@ -225,9 +216,9 @@ export default function PurchasesTab() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                          {tx.items.map((item, i) => (
+                          {tx.items.map((item) => (
                             <span
-                              key={i}
+                              key={item.material || item.materialName}
                               className="badge"
                               style={{
                                 background: filterMaterial && item.material === filterMaterial ? 'var(--primary-light)' : '#f1f5f9',
@@ -254,7 +245,7 @@ export default function PurchasesTab() {
                     </tr>
 
                     {expanded[tx._id] && (
-                      <tr key={tx._id + '-exp'}>
+                      <tr>
                         <td colSpan={6} style={{ padding: 0, background: '#f8fafc' }}>
                           <div style={{ padding: '12px 20px 12px 48px' }}>
                             <table style={{ width: '100%' }}>
@@ -267,8 +258,11 @@ export default function PurchasesTab() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {tx.items.map((item, i) => (
-                                  <tr key={i} style={{ background: filterMaterial && item.material === filterMaterial ? '#f0fdf4' : 'transparent' }}>
+                                {tx.items.map((item) => (
+                                  <tr
+                                    key={item.material || item.materialName}
+                                    style={{ background: filterMaterial && item.material === filterMaterial ? '#f0fdf4' : 'transparent' }}
+                                  >
                                     <td style={{ padding: '6px 8px', fontWeight: 500, borderBottom: 'none' }}>{item.materialName}</td>
                                     <td style={{ padding: '6px 8px', color: 'var(--text-muted)', borderBottom: 'none' }}>{item.weight} kg</td>
                                     <td style={{ padding: '6px 8px', color: 'var(--text-muted)', borderBottom: 'none' }}>
@@ -285,7 +279,7 @@ export default function PurchasesTab() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 );
               })}
             </tbody>

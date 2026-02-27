@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
@@ -8,7 +8,7 @@ export default function BuyTab() {
   const [suppliers, setSuppliers] = useState([]);
   const [cart, setCart] = useState([]);
   const [selectedSupplier, setSelectedSupplier] = useState('');
-  const [modal, setModal] = useState(null); // { material }
+  const [modal, setModal] = useState(null);
   const [weight, setWeight] = useState('');
   const [overridePrice, setOverridePrice] = useState('');
   const [loading, setLoading] = useState(true);
@@ -39,9 +39,15 @@ export default function BuyTab() {
     setOverridePrice('');
   };
 
-  const calculatedPrice = modal && weight
-    ? (Number(weight) * modal.material.pricePerKg).toFixed(2)
-    : '0.00';
+  const calculatedPrice = useMemo(() => {
+    if (!modal || !weight) return '0.00';
+    return (Number(weight) * modal.material.pricePerKg).toFixed(2);
+  }, [modal, weight]);
+
+  const grandTotal = useMemo(
+    () => cart.reduce((sum, item) => sum + item.totalPrice, 0),
+    [cart]
+  );
 
   const addToCart = () => {
     if (!weight || Number(weight) <= 0) return;
@@ -73,23 +79,23 @@ export default function BuyTab() {
   };
 
   const removeFromCart = (materialId) => {
-    setCart(cart.filter((item) => item.materialId !== materialId));
+    setCart((prev) => prev.filter((item) => item.materialId !== materialId));
   };
 
   const updateCartItemPrice = (materialId, newPrice) => {
-    setCart(cart.map((item) =>
-      item.materialId === materialId ? { ...item, totalPrice: Number(newPrice) } : item
-    ));
+    setCart((prev) =>
+      prev.map((item) =>
+        item.materialId === materialId ? { ...item, totalPrice: Number(newPrice) } : item
+      )
+    );
   };
-
-  const grandTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
 
   const completeTransaction = async () => {
     if (cart.length === 0) return;
     setSaving(true);
     try {
       const supplier = suppliers.find((s) => s._id === selectedSupplier);
-      const payload = {
+      await api.post('/transactions', {
         items: cart.map((item) => ({
           material: item.materialId,
           materialName: item.materialName,
@@ -102,8 +108,7 @@ export default function BuyTab() {
         supplierName: supplier?.name || null,
         grandTotal,
         createdBy: user.username,
-      };
-      await api.post('/transactions', payload);
+      });
       setCart([]);
       setSelectedSupplier('');
       setSuccessMsg('Transaction completed successfully!');
@@ -131,30 +136,13 @@ export default function BuyTab() {
             {materials.map((m) => (
               <button
                 key={m._id}
+                className="material-card"
                 onClick={() => openModal(m)}
-                style={{
-                  background: 'white',
-                  border: '1.5px solid var(--border)',
-                  borderRadius: 10,
-                  padding: '16px 12px',
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                  boxShadow: 'var(--shadow)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--primary)';
-                  e.currentTarget.style.boxShadow = '0 0 0 3px rgba(22,163,74,0.1)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--border)';
-                  e.currentTarget.style.boxShadow = 'var(--shadow)';
-                }}
               >
                 <div style={{ fontSize: 28, marginBottom: 8 }}>♻️</div>
                 <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', marginBottom: 4 }}>{m.name}</div>
                 <div style={{ fontSize: 12, color: 'var(--primary-dark)', fontWeight: 500 }}>
-                  {Number(m.pricePerKg).toLocaleString('en-US', { minimumFractionDigits: 2 })} / {m.unit}
+                  {Number(m.pricePerKg).toLocaleString('en-US', { minimumFractionDigits: 2 })} / kg
                 </div>
               </button>
             ))}
@@ -207,7 +195,6 @@ export default function BuyTab() {
           </div>
         )}
 
-        {/* Supplier */}
         <div className="form-group" style={{ marginBottom: 14 }}>
           <label>Supplier <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
           <select value={selectedSupplier} onChange={(e) => setSelectedSupplier(e.target.value)}>
@@ -218,7 +205,6 @@ export default function BuyTab() {
           </select>
         </div>
 
-        {/* Grand Total */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderTop: '2px solid var(--border)', marginBottom: 14 }}>
           <span style={{ fontWeight: 600 }}>Grand Total</span>
           <span style={{ fontWeight: 700, fontSize: 20, color: 'var(--primary-dark)' }}>
@@ -248,11 +234,11 @@ export default function BuyTab() {
           <div className="card" style={{ width: 340, boxShadow: 'var(--shadow-md)' }}>
             <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{modal.material.name}</h3>
             <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
-              Rate: {Number(modal.material.pricePerKg).toLocaleString('en-US', { minimumFractionDigits: 2 })} / {modal.material.unit}
+              Rate: {Number(modal.material.pricePerKg).toLocaleString('en-US', { minimumFractionDigits: 2 })} / kg
             </p>
 
             <div className="form-group" style={{ marginBottom: 12 }}>
-              <label>Weight ({modal.material.unit})</label>
+              <label>Weight (kg)</label>
               <input
                 type="number"
                 placeholder="0.00"
