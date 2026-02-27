@@ -18,7 +18,6 @@ function inRange(dateStr, from, to) {
 }
 
 const PERIODS = [
-  { id: 'all', label: 'All' },
   { id: 'today', label: 'Today' },
   { id: 'month', label: 'This Month' },
   { id: 'custom', label: 'Custom' },
@@ -31,7 +30,7 @@ export default function PurchasesTab() {
   const [loading, setLoading] = useState(true);
   const [filterMaterial, setFilterMaterial] = useState('');
   const [filterSupplier, setFilterSupplier] = useState('');
-  const [period, setPeriod] = useState('all');
+  const [period, setPeriod] = useState('today');
   const [customFrom, setCustomFrom] = useState(today());
   const [customTo, setCustomTo] = useState(today());
   const [expanded, setExpanded] = useState({});
