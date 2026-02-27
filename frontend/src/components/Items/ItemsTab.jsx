@@ -83,28 +83,17 @@ export default function ItemsTab() {
               required
             />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <div className="form-group">
-              <label>Price per unit</label>
-              <input
-                type="number"
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-                value={form.pricePerKg}
-                onChange={(e) => setForm({ ...form, pricePerKg: e.target.value })}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Unit</label>
-              <select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
-                <option value="kg">kg</option>
-                <option value="ton">ton</option>
-                <option value="piece">piece</option>
-                <option value="liter">liter</option>
-              </select>
-            </div>
+          <div className="form-group" style={{ marginBottom: 12 }}>
+            <label>Price per kg</label>
+            <input
+              type="number"
+              placeholder="0.00"
+              min="0"
+              step="0.01"
+              value={form.pricePerKg}
+              onChange={(e) => setForm({ ...form, pricePerKg: e.target.value })}
+              required
+            />
           </div>
           {error && <p className="error-msg" style={{ marginBottom: 10 }}>{error}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
@@ -133,8 +122,7 @@ export default function ItemsTab() {
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Price / Unit</th>
-                <th>Unit</th>
+                <th>Price / kg</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -145,7 +133,6 @@ export default function ItemsTab() {
                   <td style={{ color: 'var(--primary-dark)', fontWeight: 600 }}>
                     {Number(m.pricePerKg).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </td>
-                  <td>{m.unit}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn-ghost btn-sm" onClick={() => handleEdit(m)}>Edit</button>
