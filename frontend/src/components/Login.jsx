@@ -39,8 +39,8 @@ export default function Login() {
           }}>
             ♻️
           </div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)' }}>Wazeer</h1>
-          <p style={{ color: 'var(--text-muted)', marginTop: 4 }}>Recycling Plant Management</p>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)' }}>FWR Recyclers</h1>
+          <p style={{ color: 'var(--text-muted)', marginTop: 4 }}>Green Beyond Belief</p>
         </div>
 
         <div className="card">
