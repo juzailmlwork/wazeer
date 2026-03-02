@@ -11,7 +11,7 @@ function addHeader(doc, title, subtitle) {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.text('Wazeer', 14, 10.5);
+  doc.text('FWR Recyclers', 14, 10.5);
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');

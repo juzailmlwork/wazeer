@@ -36,7 +36,7 @@ export default function Layout() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 22 }}>♻️</span>
-          <span style={{ fontWeight: 700, fontSize: 18, color: 'var(--primary)' }}>Wazeer</span>
+          <span style={{ fontWeight: 700, fontSize: 18, color: 'var(--primary)' }}>FWR Recyclers</span>
         </div>
 
         {/* Tabs */}
