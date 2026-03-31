@@ -5,18 +5,25 @@ import { exportExpensesPDF } from '../../utils/pdf.js';
 
 const TAG_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#8b5cf6', '#06b6d4'];
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const pad = (n) => String(n).padStart(2, '0');
+
+const localDate = (d) => {
+  const dt = new Date(d);
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+};
+
+const todayStr = () => localDate(new Date());
 
 const thisMonthRange = () => {
   const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-  return { from, to };
+  const year = now.getFullYear();
+  const month = pad(now.getMonth() + 1);
+  const lastDay = pad(new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate());
+  return { from: `${year}-${month}-01`, to: `${year}-${month}-${lastDay}` };
 };
 
 function inRange(dateStr, from, to) {
-  const d = dateStr.slice(0, 10);
-  return d >= from && d <= to;
+  return dateStr >= from && dateStr <= to;
 }
 
 const PERIODS = [
@@ -38,7 +45,7 @@ export default function ExpensesTab() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [showTagForm, setShowTagForm] = useState(false);
-  const [period, setPeriod] = useState('all');
+  const [period, setPeriod] = useState('today');
   const [customFrom, setCustomFrom] = useState(todayStr());
   const [customTo, setCustomTo] = useState(todayStr());
   const [filterTag, setFilterTag] = useState('');
@@ -120,7 +127,7 @@ export default function ExpensesTab() {
     const today = todayStr();
     const dateFiltered = expenses.filter((e) => {
       if (period === 'all') return true;
-      const d = new Date(e.createdAt).toISOString().slice(0, 10);
+      const d = localDate(e.createdAt);
       if (period === 'today') return d === today;
       if (period === 'month') { const { from, to } = thisMonthRange(); return inRange(d, from, to); }
       if (period === 'custom') return inRange(d, customFrom, customTo);

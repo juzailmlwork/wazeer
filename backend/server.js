@@ -14,6 +14,8 @@ app.use('/api/suppliers', require('./routes/suppliers'));
 app.use('/api/transactions', require('./routes/transactions'));
 app.use('/api/expenses', require('./routes/expenses'));
 app.use('/api/tags', require('./routes/tags'));
+app.use('/api/customers', require('./routes/customers'));
+app.use('/api/sales', require('./routes/sales'));
 
 mongoose
   .connect(process.env.MONGODB_URI)

@@ -2,12 +2,12 @@ import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
-export default function BuyTab() {
+export default function SellTab() {
   const { user } = useAuth();
   const [materials, setMaterials] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [cart, setCart] = useState([]);
-  const [selectedSupplier, setSelectedSupplier] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState('');
   const [modal, setModal] = useState(null);
   const [weight, setWeight] = useState('');
   const [overridePrice, setOverridePrice] = useState('');
@@ -24,11 +24,11 @@ export default function BuyTab() {
 
   const fetchData = async () => {
     try {
-      const [matRes, supRes] = await Promise.all([api.get('/materials'), api.get('/suppliers')]);
+      const [matRes, custRes] = await Promise.all([api.get('/materials'), api.get('/customers')]);
       setMaterials(matRes.data);
-      setSuppliers(supRes.data);
-      const other = supRes.data.find((s) => s.name === 'Other');
-      if (other) setSelectedSupplier(other._id);
+      setCustomers(custRes.data);
+      const other = custRes.data.find((c) => c.name === 'Other');
+      if (other) setSelectedCustomer(other._id);
     } finally {
       setLoading(false);
     }
@@ -48,7 +48,7 @@ export default function BuyTab() {
 
   const calculatedPrice = useMemo(() => {
     if (!modal || !weight) return '0.00';
-    return (Number(weight) * modal.material.buyingPrice).toFixed(2);
+    return (Number(weight) * modal.material.sellingPrice).toFixed(2);
   }, [modal, weight]);
 
   const grandTotal = useMemo(
@@ -76,7 +76,7 @@ export default function BuyTab() {
           materialId: modal.material._id,
           materialName: modal.material.name,
           weight: Number(weight),
-          pricePerKg: modal.material.buyingPrice,
+          pricePerKg: modal.material.sellingPrice,
           unit: modal.material.unit,
           totalPrice,
         },
@@ -97,12 +97,12 @@ export default function BuyTab() {
     );
   };
 
-  const completeTransaction = async () => {
+  const completeSale = async () => {
     if (cart.length === 0) return;
     setSaving(true);
     try {
-      const supplier = suppliers.find((s) => s._id === selectedSupplier);
-      await api.post('/transactions', {
+      const customer = customers.find((c) => c._id === selectedCustomer);
+      await api.post('/sales', {
         items: cart.map((item) => ({
           material: item.materialId,
           materialName: item.materialName,
@@ -111,19 +111,19 @@ export default function BuyTab() {
           totalPrice: item.totalPrice,
           unit: item.unit,
         })),
-        supplier: selectedSupplier || null,
-        supplierName: supplier?.name || null,
+        customer: selectedCustomer || null,
+        customerName: customer?.name || null,
         grandTotal,
         createdBy: user.username,
         transactionDate: txDate,
       });
       setCart([]);
-      const other = suppliers.find((s) => s.name === 'Other');
-      setSelectedSupplier(other?._id || '');
-      setSuccessMsg('Transaction completed successfully!');
+      const other = customers.find((c) => c.name === 'Other');
+      setSelectedCustomer(other?._id || '');
+      setSuccessMsg('Sale completed successfully!');
       setTimeout(() => setSuccessMsg(''), 3000);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to complete transaction');
+      alert(err.response?.data?.message || 'Failed to complete sale');
     } finally {
       setSaving(false);
     }
@@ -160,7 +160,7 @@ export default function BuyTab() {
                 <div style={{ fontSize: 28, marginBottom: 8 }}>♻️</div>
                 <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', marginBottom: 4 }}>{m.name}</div>
                 <div style={{ fontSize: 12, color: 'var(--primary-dark)', fontWeight: 500 }}>
-                  {Number(m.buyingPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })} / kg
+                  {Number(m.sellingPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })} / kg
                 </div>
               </button>
             ))}
@@ -170,7 +170,7 @@ export default function BuyTab() {
 
       {/* Cart */}
       <div className="card" style={{ position: 'sticky', top: 76 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Transaction</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Sale</h2>
 
         {successMsg && (
           <div style={{ background: 'var(--primary-light)', color: 'var(--primary-dark)', padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13, fontWeight: 500 }}>
@@ -224,11 +224,11 @@ export default function BuyTab() {
         </div>
 
         <div className="form-group" style={{ marginBottom: 14 }}>
-          <label>Supplier</label>
-          <select value={selectedSupplier} onChange={(e) => setSelectedSupplier(e.target.value)}>
-            <option value="">— Select supplier —</option>
-            {suppliers.map((s) => (
-              <option key={s._id} value={s._id}>{s.name}</option>
+          <label>Customer</label>
+          <select value={selectedCustomer} onChange={(e) => setSelectedCustomer(e.target.value)}>
+            <option value="">— Select customer —</option>
+            {customers.map((c) => (
+              <option key={c._id} value={c._id}>{c.name}</option>
             ))}
           </select>
         </div>
@@ -243,10 +243,10 @@ export default function BuyTab() {
         <button
           className="btn-primary"
           style={{ width: '100%', padding: '10px' }}
-          onClick={completeTransaction}
-          disabled={cart.length === 0 || !selectedSupplier || saving}
+          onClick={completeSale}
+          disabled={cart.length === 0 || !selectedCustomer || saving}
         >
-          {saving ? 'Processing...' : 'Complete Transaction'}
+          {saving ? 'Processing...' : 'Complete Sale'}
         </button>
       </div>
 
@@ -262,7 +262,7 @@ export default function BuyTab() {
           <div className="card" style={{ width: 340, boxShadow: 'var(--shadow-md)' }}>
             <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{modal.material.name}</h3>
             <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
-              Rate: {Number(modal.material.buyingPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })} / kg
+              Rate: {Number(modal.material.sellingPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })} / kg
             </p>
 
             <div className="form-group" style={{ marginBottom: 12 }}>

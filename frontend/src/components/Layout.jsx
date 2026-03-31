@@ -5,13 +5,21 @@ import ItemsTab from './Items/ItemsTab.jsx';
 import SuppliersTab from './Suppliers/SuppliersTab.jsx';
 import ExpensesTab from './Expenses/ExpensesTab.jsx';
 import PurchasesTab from './Purchases/PurchasesTab.jsx';
+import CustomersTab from './Customers/CustomersTab.jsx';
+import SellTab from './Sell/SellTab.jsx';
+import SalesTab from './Sales/SalesTab.jsx';
+import PLTab from './PL/PLTab.jsx';
 
 const TABS = [
   { id: 'buy', label: '🛒 Buy' },
+  { id: 'sell', label: '💰 Sell' },
   { id: 'purchases', label: '📋 Purchases' },
+  { id: 'sales', label: '📋 Sales' },
+  { id: 'expenses', label: '💸 Expenses' },
+  { id: 'pl', label: '📊 P/L' },
   { id: 'items', label: '📦 Items' },
   { id: 'suppliers', label: '🏭 Suppliers' },
-  { id: 'expenses', label: '💸 Expenses' },
+  { id: 'customers', label: '👥 Customers' },
 ];
 
 export default function Layout() {
@@ -78,10 +86,14 @@ export default function Layout() {
       {/* Content */}
       <main style={{ flex: 1, padding: '24px', maxWidth: 1200, width: '100%', margin: '0 auto' }}>
         {activeTab === 'buy' && <BuyTab />}
+        {activeTab === 'sell' && <SellTab />}
         {activeTab === 'purchases' && <PurchasesTab />}
+        {activeTab === 'sales' && <SalesTab />}
         {activeTab === 'items' && <ItemsTab />}
         {activeTab === 'suppliers' && <SuppliersTab />}
+        {activeTab === 'customers' && <CustomersTab />}
         {activeTab === 'expenses' && <ExpensesTab />}
+        {activeTab === 'pl' && <PLTab />}
       </main>
     </div>
   );

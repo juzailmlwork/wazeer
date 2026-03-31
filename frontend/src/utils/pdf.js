@@ -168,3 +168,147 @@ export function exportSupplierPDF({ supplier, itemRows, monthGrandTotal, monthGr
 
   doc.save(`supplier-${supplier.name.toLowerCase().replace(/\s+/g, '-')}-${MONTH_NAMES[selectedMonth].toLowerCase()}-${selectedYear}.pdf`);
 }
+
+export function exportCustomerPDF({ customer, itemRows, monthGrandTotal, monthGrandWeight, monthSales, selectedMonth, selectedYear }) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
+  addHeader(doc, `Customer Report — ${customer.name}`, `${MONTH_NAMES[selectedMonth]} ${selectedYear}${customer.phone ? `  ·  ${customer.phone}` : ''}`);
+
+  const stats = [
+    { label: 'Sales', value: monthSales.length },
+    { label: 'Total Weight', value: `${Number(monthGrandWeight).toLocaleString('en-US', { minimumFractionDigits: 2 })} kg` },
+    { label: 'Total Received', value: Number(monthGrandTotal).toLocaleString('en-US', { minimumFractionDigits: 2 }) },
+  ];
+
+  let y = addStatRow(doc, stats, 40);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Item', 'Sales', 'Total Weight', 'Total Amount']],
+    body: itemRows.map((row) => [
+      row.name,
+      row.count,
+      `${Number(row.totalWeight).toLocaleString('en-US', { minimumFractionDigits: 2 })} kg`,
+      Number(row.totalAmount).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+    ]),
+    foot: [[
+      'Total', '',
+      `${Number(monthGrandWeight).toLocaleString('en-US', { minimumFractionDigits: 2 })} kg`,
+      Number(monthGrandTotal).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+    ]],
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 9, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 8.5 },
+    footStyles: { fillColor: [240, 253, 244], textColor: BRAND_COLOR, fontStyle: 'bold', fontSize: 9 },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right', fontStyle: 'bold' } },
+    margin: { left: 14, right: 14 },
+  });
+
+  doc.save(`customer-${customer.name.toLowerCase().replace(/\s+/g, '-')}-${MONTH_NAMES[selectedMonth].toLowerCase()}-${selectedYear}.pdf`);
+}
+
+export function exportPLPDF({ from, to, filteredTransactions, filteredSales, filteredExpenses, totalRevenue, totalPurchases, totalExpenses, netPL }) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 });
+  const isProfit = netPL >= 0;
+
+  addHeader(doc, 'Profit & Loss Report', `${from}  to  ${to}`);
+
+  // Summary stat boxes
+  let y = addStatRow(doc, [
+    { label: 'Sales Revenue', value: fmt(totalRevenue) },
+    { label: 'Purchases Cost', value: fmt(totalPurchases) },
+    { label: 'Expenses', value: fmt(totalExpenses) },
+    { label: isProfit ? 'Net Profit' : 'Net Loss', value: (isProfit ? '+' : '') + fmt(netPL) },
+  ], 40);
+
+  // Net P/L highlight box
+  doc.setFillColor(...(isProfit ? [220, 252, 231] : [254, 226, 226]));
+  doc.roundedRect(14, y, 182, 14, 2, 2, 'F');
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...(isProfit ? BRAND_COLOR : [220, 38, 38]));
+  doc.text(`${isProfit ? 'NET PROFIT' : 'NET LOSS'}: ${(isProfit ? '+' : '') + fmt(netPL)}`, 105, y + 9, { align: 'center' });
+  y += 20;
+
+  // Sales table
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...BRAND_COLOR);
+  doc.text(`Sales  (${filteredSales.length} records)`, 14, y + 5);
+  y += 8;
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Date', 'Customer', 'Items', 'Amount']],
+    body: filteredSales.map((s) => [
+      new Date(s.createdAt).toLocaleDateString(),
+      s.customerName || '—',
+      s.items.map((i) => i.materialName).join(', '),
+      fmt(s.grandTotal),
+    ]),
+    foot: [['', '', 'Total', fmt(totalRevenue)]],
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 8.5, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 8 },
+    footStyles: { fillColor: [220, 252, 231], textColor: BRAND_COLOR, fontStyle: 'bold', fontSize: 9 },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
+    margin: { left: 14, right: 14 },
+  });
+
+  y = doc.lastAutoTable.finalY + 10;
+
+  // Purchases table
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(180, 83, 9);
+  doc.text(`Purchases  (${filteredTransactions.length} records)`, 14, y + 5);
+  y += 8;
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Date', 'Supplier', 'Items', 'Amount']],
+    body: filteredTransactions.map((tx) => [
+      new Date(tx.createdAt).toLocaleDateString(),
+      tx.supplierName || '—',
+      tx.items.map((i) => i.materialName).join(', '),
+      fmt(tx.grandTotal),
+    ]),
+    foot: [['', '', 'Total', fmt(totalPurchases)]],
+    headStyles: { fillColor: [180, 83, 9], fontSize: 8.5, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 8 },
+    footStyles: { fillColor: [254, 243, 199], textColor: [180, 83, 9], fontStyle: 'bold', fontSize: 9 },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
+    margin: { left: 14, right: 14 },
+  });
+
+  y = doc.lastAutoTable.finalY + 10;
+
+  // Expenses table
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(220, 38, 38);
+  doc.text(`Expenses  (${filteredExpenses.length} records)`, 14, y + 5);
+  y += 8;
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Date', 'Description', 'Tags', 'Amount']],
+    body: filteredExpenses.map((e) => [
+      new Date(e.createdAt).toLocaleDateString(),
+      e.description || '—',
+      e.tags?.map((t) => t.name).join(', ') || '—',
+      fmt(e.amount),
+    ]),
+    foot: [['', '', 'Total', fmt(totalExpenses)]],
+    headStyles: { fillColor: [220, 38, 38], fontSize: 8.5, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 8 },
+    footStyles: { fillColor: [254, 226, 226], textColor: [220, 38, 38], fontStyle: 'bold', fontSize: 9 },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
+    margin: { left: 14, right: 14 },
+  });
+
+  doc.save(`pl-report-${from}-to-${to}.pdf`);
+}
