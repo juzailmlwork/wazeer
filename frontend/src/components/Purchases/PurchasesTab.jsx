@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import React from 'react';
 import api from '../../api/index.js';
 import { exportPurchasesPDF } from '../../utils/pdf.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import SearchableSelect from '../SearchableSelect.jsx';
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -31,6 +33,7 @@ const PERIODS = [
 ];
 
 export default function PurchasesTab() {
+  const { isSuperAdmin } = useAuth();
   const [transactions, setTransactions] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -41,6 +44,7 @@ export default function PurchasesTab() {
   const [customFrom, setCustomFrom] = useState(today());
   const [customTo, setCustomTo] = useState(today());
   const [expanded, setExpanded] = useState({});
+  const [filterYard, setFilterYard] = useState('');
 
   useEffect(() => { fetchData(); }, []);
 
@@ -61,6 +65,12 @@ export default function PurchasesTab() {
 
   const toggleExpand = (id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this purchase record? This cannot be undone.')) return;
+    await api.delete(`/transactions/${id}`);
+    setTransactions((prev) => prev.filter((tx) => tx._id !== id));
+  };
+
   const filtered = useMemo(() => {
     const todayStr = today();
     const dateFiltered = transactions.filter((tx) => {
@@ -74,10 +84,13 @@ export default function PurchasesTab() {
     const supplierFiltered = filterSupplier
       ? dateFiltered.filter((tx) => tx.supplier?._id === filterSupplier)
       : dateFiltered;
-    return filterMaterial
+    const materialFiltered = filterMaterial
       ? supplierFiltered.filter((tx) => tx.items.some((item) => item.material === filterMaterial))
       : supplierFiltered;
-  }, [transactions, period, customFrom, customTo, filterSupplier, filterMaterial]);
+    return filterYard
+      ? materialFiltered.filter((tx) => (tx.yard || 'hospital') === filterYard)
+      : materialFiltered;
+  }, [transactions, period, customFrom, customTo, filterSupplier, filterMaterial, filterYard]);
 
   const selectedMaterial = useMemo(
     () => materials.find((m) => m._id === filterMaterial),
@@ -103,7 +116,7 @@ export default function PurchasesTab() {
     };
   }, [filtered, filterMaterial]);
 
-  const hasFilters = filterMaterial || filterSupplier;
+  const hasFilters = filterMaterial || filterSupplier || filterYard;
 
   return (
     <div>
@@ -139,18 +152,30 @@ export default function PurchasesTab() {
           )}
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)} style={{ width: 180 }}>
-              <option value="">All Suppliers</option>
-              {suppliers.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+            <select value={filterYard} onChange={(e) => setFilterYard(e.target.value)} style={{ width: 130 }}>
+              <option value="">All Yards</option>
+              <option value="hospital">Hospital</option>
+              <option value="nayawala">Nayawala</option>
             </select>
 
-            <select value={filterMaterial} onChange={(e) => setFilterMaterial(e.target.value)} style={{ width: 180 }}>
-              <option value="">All Items</option>
-              {materials.map((m) => <option key={m._id} value={m._id}>{m.name}</option>)}
-            </select>
+            <SearchableSelect
+              value={filterSupplier}
+              onChange={setFilterSupplier}
+              options={suppliers.map((s) => ({ value: s._id, label: s.name }))}
+              placeholder="All Suppliers"
+              style={{ width: 180 }}
+            />
+
+            <SearchableSelect
+              value={filterMaterial}
+              onChange={setFilterMaterial}
+              options={materials.map((m) => ({ value: m._id, label: m.name }))}
+              placeholder="All Items"
+              style={{ width: 180 }}
+            />
 
             {hasFilters && (
-              <button className="btn-ghost btn-sm" onClick={() => { setFilterMaterial(''); setFilterSupplier(''); }}>
+              <button className="btn-ghost btn-sm" onClick={() => { setFilterMaterial(''); setFilterSupplier(''); setFilterYard(''); }}>
                 Clear
               </button>
             )}
@@ -188,7 +213,7 @@ export default function PurchasesTab() {
             {filtered.length > 0 && (
               <button
                 className="btn-ghost btn-sm"
-                onClick={() => exportPurchasesPDF({ filtered, filterMaterial, selectedMaterial, filterSupplier, selectedSupplier, period, totalValue, totalWeight })}
+                onClick={() => exportPurchasesPDF({ filtered, filterMaterial, selectedMaterial, filterSupplier, selectedSupplier, filterYard, period, totalValue, totalWeight })}
               >
                 ↓ PDF
               </button>
@@ -208,8 +233,10 @@ export default function PurchasesTab() {
                 <th>Date</th>
                 <th>Items</th>
                 <th>Supplier</th>
+                <th>Yard</th>
                 <th>Created By</th>
                 <th style={{ textAlign: 'right' }}>{filterMaterial ? `${selectedMaterial?.name} Amount` : 'Total'}</th>
+                {isSuperAdmin && <th style={{ width: 48 }} />}
               </tr>
             </thead>
             <tbody>
@@ -250,6 +277,11 @@ export default function PurchasesTab() {
                       <td style={{ color: tx.supplierName ? 'var(--text)' : 'var(--text-muted)' }}>
                         {tx.supplierName || '—'}
                       </td>
+                      <td>
+                        <span className="badge" style={{ background: tx.yard === 'hospital' ? '#dbeafe' : '#dcfce7', color: tx.yard === 'hospital' ? '#1d4ed8' : '#15803d', textTransform: 'capitalize' }}>
+                          {tx.yard || 'hospital'}
+                        </span>
+                      </td>
                       <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{tx.createdBy || '—'}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-dark)', whiteSpace: 'nowrap' }}>
                         {Number(displayTotal).toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -259,11 +291,22 @@ export default function PurchasesTab() {
                           </div>
                         )}
                       </td>
+                      {isSuperAdmin && (
+                        <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
+                          <button
+                            onClick={() => handleDelete(tx._id)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger, #ef4444)', fontSize: 15, padding: '2px 6px', borderRadius: 4 }}
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      )}
                     </tr>
 
                     {expanded[tx._id] && (
                       <tr>
-                        <td colSpan={6} style={{ padding: 0, background: '#f8fafc' }}>
+                        <td colSpan={isSuperAdmin ? 8 : 7} style={{ padding: 0, background: '#f8fafc' }}>
                           <div style={{ padding: '12px 20px 12px 48px' }}>
                             <table style={{ width: '100%' }}>
                               <thead>

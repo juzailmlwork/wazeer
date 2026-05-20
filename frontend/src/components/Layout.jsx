@@ -9,6 +9,8 @@ import CustomersTab from './Customers/CustomersTab.jsx';
 import SellTab from './Sell/SellTab.jsx';
 import SalesTab from './Sales/SalesTab.jsx';
 import PLTab from './PL/PLTab.jsx';
+import IncomeTab from './Income/IncomeTab.jsx';
+import UsersTab from './Users/UsersTab.jsx';
 
 const TABS = [
   { id: 'buy', label: '🛒 Buy' },
@@ -16,14 +18,16 @@ const TABS = [
   { id: 'purchases', label: '📋 Purchases' },
   { id: 'sales', label: '📋 Sales' },
   { id: 'expenses', label: '💸 Expenses' },
+  { id: 'income', label: '💵 Income' },
   { id: 'pl', label: '📊 P/L' },
   { id: 'items', label: '📦 Items' },
   { id: 'suppliers', label: '🏭 Suppliers' },
   { id: 'customers', label: '👥 Customers' },
+  { id: 'users', label: '👤 Users', superAdminOnly: true },
 ];
 
 export default function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, isSuperAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState('buy');
 
   return (
@@ -49,24 +53,27 @@ export default function Layout() {
 
         {/* Tabs */}
         <nav style={{ display: 'flex', gap: 4 }}>
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                background: activeTab === tab.id ? 'var(--primary-light)' : 'transparent',
-                color: activeTab === tab.id ? 'var(--primary-dark)' : 'var(--text-muted)',
-                fontWeight: activeTab === tab.id ? 600 : 400,
-                border: 'none',
-                borderRadius: 6,
-                padding: '6px 14px',
-                fontSize: 14,
-                cursor: 'pointer',
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {TABS.map((tab) => {
+            if (tab.superAdminOnly && !isSuperAdmin) return null;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                style={{
+                  background: activeTab === tab.id ? 'var(--primary-light)' : 'transparent',
+                  color: activeTab === tab.id ? 'var(--primary-dark)' : 'var(--text-muted)',
+                  fontWeight: activeTab === tab.id ? 600 : 400,
+                  border: 'none',
+                  borderRadius: 6,
+                  padding: '6px 14px',
+                  fontSize: 14,
+                  cursor: 'pointer',
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </nav>
 
         {/* User */}
@@ -93,6 +100,8 @@ export default function Layout() {
         {activeTab === 'suppliers' && <SuppliersTab />}
         {activeTab === 'customers' && <CustomersTab />}
         {activeTab === 'expenses' && <ExpensesTab />}
+        {activeTab === 'income' && <IncomeTab />}
+        {activeTab === 'users' && isSuperAdmin && <UsersTab />}
         {activeTab === 'pl' && <PLTab />}
       </main>
     </div>

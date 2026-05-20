@@ -16,11 +16,13 @@ const transactionSchema = new mongoose.Schema(
     supplierName: { type: String, default: null },
     grandTotal: { type: Number, required: true },
     createdBy: { type: String },
+    yard: { type: String, enum: ['hospital', 'nayawala'], default: 'hospital' },
   },
   { timestamps: true }
 );
 
 transactionSchema.index({ createdAt: -1 });
 transactionSchema.index({ supplier: 1 });
+transactionSchema.index({ yard: 1 });
 
 module.exports = mongoose.model('Transaction', transactionSchema);

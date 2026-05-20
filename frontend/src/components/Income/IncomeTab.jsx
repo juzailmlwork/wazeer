@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { exportExpensesPDF } from '../../utils/pdf.js';
+import { exportIncomePDF } from '../../utils/pdf.js';
 
 const TAG_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#8b5cf6', '#06b6d4'];
 
@@ -33,13 +33,13 @@ const PERIODS = [
   { id: 'custom', label: 'Custom' },
 ];
 
-export default function ExpensesTab() {
+export default function IncomeTab() {
   const { isSuperAdmin } = useAuth();
-  const [expenses, setExpenses] = useState([]);
+  const [incomes, setIncomes] = useState([]);
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ description: '', amount: '' });
-  const [expenseDate, setExpenseDate] = useState(todayStr());
+  const [incomeDate, setIncomeDate] = useState(todayStr());
   const [yard, setYard] = useState('hospital');
   const [selectedTags, setSelectedTags] = useState([]);
   const [newTagName, setNewTagName] = useState('');
@@ -56,8 +56,8 @@ export default function ExpensesTab() {
 
   const fetchData = async () => {
     try {
-      const [expRes, tagRes] = await Promise.all([api.get('/expenses'), api.get('/tags')]);
-      setExpenses(expRes.data);
+      const [incRes, tagRes] = await Promise.all([api.get('/incomes'), api.get('/income-tags')]);
+      setIncomes(incRes.data);
       setTags(tagRes.data);
     } finally {
       setLoading(false);
@@ -67,7 +67,7 @@ export default function ExpensesTab() {
   const handleCreateTag = async () => {
     if (!newTagName.trim()) return;
     try {
-      const { data } = await api.post('/tags', { name: newTagName.trim(), color: newTagColor });
+      const { data } = await api.post('/income-tags', { name: newTagName.trim(), color: newTagColor });
       setTags([...tags, data].sort((a, b) => a.name.localeCompare(b.name)));
       setSelectedTags([...selectedTags, data._id]);
       setNewTagName('');
@@ -88,17 +88,17 @@ export default function ExpensesTab() {
     setError('');
     setSaving(true);
     try {
-      const { data } = await api.post('/expenses', {
+      const { data } = await api.post('/incomes', {
         description: form.description,
         amount: Number(form.amount),
         tags: selectedTags,
         yard,
-        expenseDate,
+        incomeDate,
       });
-      setExpenses([data, ...expenses]);
+      setIncomes([data, ...incomes]);
       setForm({ description: '', amount: '' });
       setYard('hospital');
-      setExpenseDate(todayStr());
+      setIncomeDate(todayStr());
       setSelectedTags([]);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save');
@@ -108,10 +108,10 @@ export default function ExpensesTab() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this expense?')) return;
+    if (!confirm('Delete this income record?')) return;
     try {
-      await api.delete(`/expenses/${id}`);
-      setExpenses(expenses.filter((e) => e._id !== id));
+      await api.delete(`/incomes/${id}`);
+      setIncomes(incomes.filter((inc) => inc._id !== id));
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to delete');
     }
@@ -120,7 +120,7 @@ export default function ExpensesTab() {
   const handleDeleteTag = async (id) => {
     if (!confirm('Delete this tag?')) return;
     try {
-      await api.delete(`/tags/${id}`);
+      await api.delete(`/income-tags/${id}`);
       setTags(tags.filter((t) => t._id !== id));
       setSelectedTags(selectedTags.filter((tid) => tid !== id));
       if (filterTag === id) setFilterTag('');
@@ -131,21 +131,21 @@ export default function ExpensesTab() {
 
   const filtered = useMemo(() => {
     const today = todayStr();
-    const dateFiltered = expenses.filter((e) => {
+    const dateFiltered = incomes.filter((inc) => {
       if (period === 'all') return true;
-      const d = localDate(e.createdAt);
+      const d = localDate(inc.createdAt);
       if (period === 'today') return d === today;
       if (period === 'month') { const { from, to } = thisMonthRange(); return inRange(d, from, to); }
       if (period === 'custom') return inRange(d, customFrom, customTo);
       return true;
     });
     return filterTag
-      ? dateFiltered.filter((e) => e.tags?.some((t) => t._id === filterTag))
+      ? dateFiltered.filter((inc) => inc.tags?.some((t) => t._id === filterTag))
       : dateFiltered;
-  }, [expenses, period, customFrom, customTo, filterTag]);
+  }, [incomes, period, customFrom, customTo, filterTag]);
 
   const totalFiltered = useMemo(
-    () => filtered.reduce((sum, e) => sum + e.amount, 0),
+    () => filtered.reduce((sum, inc) => sum + inc.amount, 0),
     [filtered]
   );
   const selectedTagObj = useMemo(
@@ -157,18 +157,19 @@ export default function ExpensesTab() {
     <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, alignItems: 'start' }}>
       {/* Form */}
       <div className="card">
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Add Expense</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Add Income</h2>
         <form onSubmit={handleSubmit}>
           <div className="form-group" style={{ marginBottom: 12 }}>
             <label>Description <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
             <textarea
-              placeholder="What was this expense for?"
+              placeholder="What is this income from?"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               rows={2}
               style={{ resize: 'vertical' }}
             />
           </div>
+
           <div className="form-group" style={{ marginBottom: 16 }}>
             <label>Amount</label>
             <input
@@ -186,9 +187,9 @@ export default function ExpensesTab() {
             <label>Date</label>
             <input
               type="date"
-              value={expenseDate}
+              value={incomeDate}
               max={todayStr()}
-              onChange={(e) => setExpenseDate(e.target.value)}
+              onChange={(e) => setIncomeDate(e.target.value)}
             />
           </div>
 
@@ -220,7 +221,6 @@ export default function ExpensesTab() {
           <div style={{ marginBottom: 16 }}>
             <label style={{ marginBottom: 8 }}>Tags</label>
 
-            {/* Selected tag chips */}
             {selectedTags.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                 {selectedTags.map((tagId) => {
@@ -249,7 +249,6 @@ export default function ExpensesTab() {
               </div>
             )}
 
-            {/* Dropdown */}
             <select
               value=""
               onChange={(e) => {
@@ -265,7 +264,6 @@ export default function ExpensesTab() {
               <option value="__new__">+ Add new tag</option>
             </select>
 
-            {/* New tag inline form */}
             {showTagForm && (
               <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 12, marginTop: 8 }}>
                 <input
@@ -301,7 +299,7 @@ export default function ExpensesTab() {
 
           {error && <p className="error-msg" style={{ marginBottom: 10 }}>{error}</p>}
           <button type="submit" className="btn-primary" style={{ width: '100%' }} disabled={saving}>
-            {saving ? 'Saving...' : 'Add Expense'}
+            {saving ? 'Saving...' : 'Add Income'}
           </button>
         </form>
 
@@ -362,14 +360,9 @@ export default function ExpensesTab() {
               </div>
             )}
 
-            {/* Tag filter */}
             {tags.length > 0 && (
               <div style={{ marginLeft: 'auto' }}>
-                <select
-                  value={filterTag}
-                  onChange={(e) => setFilterTag(e.target.value)}
-                  style={{ width: 180 }}
-                >
+                <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)} style={{ width: 180 }}>
                   <option value="">All Tags</option>
                   {tags.map((t) => (
                     <option key={t._id} value={t._id}>{t.name}</option>
@@ -385,15 +378,15 @@ export default function ExpensesTab() {
           <div className="card" style={{ padding: '16px 20px' }}>
             <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--primary-dark)' }}>{filtered.length}</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-              Expenses {filterTag && `(${selectedTagObj?.name})`}
+              Records {filterTag && `(${selectedTagObj?.name})`}
             </div>
           </div>
           <div className="card" style={{ padding: '16px 20px' }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--danger)' }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--primary-dark)' }}>
               {totalFiltered.toLocaleString('en-US', { minimumFractionDigits: 2 })}
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-              Total {filterTag && `(${selectedTagObj?.name})`}
+              Total Income {filterTag && `(${selectedTagObj?.name})`}
             </div>
           </div>
         </div>
@@ -402,7 +395,7 @@ export default function ExpensesTab() {
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2 style={{ fontSize: 16, fontWeight: 600 }}>
-              Expenses
+              Income
               {filterTag && <span style={{ color: selectedTagObj?.color, fontSize: 13, fontWeight: 400, marginLeft: 8 }}>— {selectedTagObj?.name}</span>}
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -410,23 +403,25 @@ export default function ExpensesTab() {
               {filtered.length > 0 && (
                 <button
                   className="btn-ghost btn-sm"
-                  onClick={() => exportExpensesPDF({ filtered, totalFiltered, period, selectedTagObj })}
+                  onClick={() => exportIncomePDF({ filtered, totalFiltered, period, selectedTagObj })}
                 >
                   ↓ PDF
                 </button>
               )}
             </div>
           </div>
+
           {loading ? (
             <div className="empty-state">Loading...</div>
           ) : filtered.length === 0 ? (
-            <div className="empty-state">No expenses found.</div>
+            <div className="empty-state">No income records found.</div>
           ) : (
             <table>
               <thead>
                 <tr>
                   <th>Date</th>
                   <th>Description</th>
+                  <th>Yard</th>
                   <th>Tags</th>
                   <th>Created By</th>
                   <th style={{ textAlign: 'right' }}>Amount</th>
@@ -434,15 +429,20 @@ export default function ExpensesTab() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((e) => (
-                  <tr key={e._id}>
+                {filtered.map((inc) => (
+                  <tr key={inc._id}>
                     <td style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', fontSize: 13 }}>
-                      {new Date(e.createdAt).toLocaleDateString()}
+                      {new Date(inc.createdAt).toLocaleDateString()}
                     </td>
-                    <td>{e.description || <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                    <td>{inc.description || <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                    <td>
+                      <span className="badge" style={{ background: inc.yard === 'hospital' ? '#dbeafe' : '#dcfce7', color: inc.yard === 'hospital' ? '#1d4ed8' : '#15803d', textTransform: 'capitalize' }}>
+                        {inc.yard || 'hospital'}
+                      </span>
+                    </td>
                     <td>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        {e.tags?.map((tag) => (
+                        {inc.tags?.map((tag) => (
                           <span
                             key={tag._id}
                             className="badge"
@@ -453,13 +453,13 @@ export default function ExpensesTab() {
                         ))}
                       </div>
                     </td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{e.createdBy || '—'}</td>
-                    <td style={{ fontWeight: 600, color: 'var(--danger)', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                      {Number(e.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{inc.createdBy || '—'}</td>
+                    <td style={{ fontWeight: 600, color: 'var(--primary-dark)', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                      {Number(inc.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </td>
                     {isSuperAdmin && (
                       <td>
-                        <button className="btn-danger btn-sm" onClick={() => handleDelete(e._id)}>Delete</button>
+                        <button className="btn-danger btn-sm" onClick={() => handleDelete(inc._id)}>Delete</button>
                       </td>
                     )}
                   </tr>

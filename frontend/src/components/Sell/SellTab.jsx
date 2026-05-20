@@ -19,6 +19,7 @@ export default function SellTab() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   });
+  const [yard, setYard] = useState('hospital');
 
   useEffect(() => { fetchData(); }, []);
 
@@ -116,6 +117,7 @@ export default function SellTab() {
         grandTotal,
         createdBy: user.username,
         transactionDate: txDate,
+        yard,
       });
       setCart([]);
       const other = customers.find((c) => c.name === 'Other');
@@ -212,6 +214,29 @@ export default function SellTab() {
             ))}
           </div>
         )}
+
+        <div className="form-group" style={{ marginBottom: 14 }}>
+          <label>Yard</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {['hospital', 'nayawala'].map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setYard(v)}
+                style={{
+                  flex: 1, padding: '6px 0', borderRadius: 6, fontSize: 13,
+                  fontWeight: yard === v ? 600 : 400,
+                  background: yard === v ? 'var(--primary)' : 'transparent',
+                  color: yard === v ? 'white' : 'var(--text-muted)',
+                  border: yard === v ? 'none' : '1px solid var(--border)',
+                  cursor: 'pointer', textTransform: 'capitalize',
+                }}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="form-group" style={{ marginBottom: 14 }}>
           <label>Date</label>

@@ -1,28 +1,31 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const router = express.Router();
+const User = require('../models/User');
 
-const USERS = [
-  { id: 1, username: 'superadmin', password: 'admin123', role: 'super_admin', name: 'Super Admin' },
-  { id: 2, username: 'admin', password: 'admin123', role: 'normal_admin', name: 'Admin' },
-];
+router.post('/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
-router.post('/login', (req, res) => {
-  const { username, password } = req.body;
-  const user = USERS.find((u) => u.username === username && u.password === password);
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(401).json({ message: 'Invalid credentials' });
 
-  if (!user) return res.status(401).json({ message: 'Invalid credentials' });
+    const token = jwt.sign(
+      { id: user._id, username: user.username, role: user.role, name: user.name },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
 
-  const token = jwt.sign(
-    { id: user.id, username: user.username, role: user.role, name: user.name },
-    process.env.JWT_SECRET,
-    { expiresIn: '24h' }
-  );
-
-  res.json({
-    token,
-    user: { id: user.id, username: user.username, role: user.role, name: user.name },
-  });
+    res.json({
+      token,
+      user: { id: user._id, username: user.username, role: user.role, name: user.name },
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 module.exports = router;

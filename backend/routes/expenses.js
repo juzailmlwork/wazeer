@@ -14,7 +14,10 @@ router.get('/', auth, async (req, res) => {
 
 router.post('/', auth, async (req, res) => {
   try {
-    const expense = new Expense({ ...req.body, createdBy: req.user.username });
+    const { expenseDate, ...rest } = req.body;
+    const doc = { ...rest, createdBy: req.user.username };
+    if (expenseDate) doc.createdAt = new Date(expenseDate);
+    const expense = new Expense(doc);
     await expense.save();
     const populated = await expense.populate('tags', 'name color');
     res.status(201).json(populated);

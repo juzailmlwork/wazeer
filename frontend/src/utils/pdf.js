@@ -48,11 +48,12 @@ function addStatRow(doc, stats, y) {
   return y + 24;
 }
 
-export function exportPurchasesPDF({ filtered, filterMaterial, selectedMaterial, filterSupplier, selectedSupplier, period, totalValue, totalWeight }) {
+export function exportPurchasesPDF({ filtered, filterMaterial, selectedMaterial, filterSupplier, selectedSupplier, filterYard, period, totalValue, totalWeight }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
 
   const parts = [];
   if (period !== 'all') parts.push(`Period: ${period}`);
+  if (filterYard) parts.push(`Yard: ${filterYard.charAt(0).toUpperCase() + filterYard.slice(1)}`);
   if (selectedSupplier) parts.push(`Supplier: ${selectedSupplier.name}`);
   if (selectedMaterial) parts.push(`Item: ${selectedMaterial.name}`);
   const subtitle = parts.length ? parts.join('  ·  ') : 'All records';
@@ -91,6 +92,90 @@ export function exportPurchasesPDF({ filtered, filterMaterial, selectedMaterial,
   });
 
   doc.save(`purchases-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+export function exportSalesPDF({ filtered, filterMaterial, selectedMaterial, filterCustomer, selectedCustomer, filterYard, period, totalValue, totalWeight }) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
+  const parts = [];
+  if (period !== 'all') parts.push(`Period: ${period}`);
+  if (filterYard) parts.push(`Yard: ${filterYard.charAt(0).toUpperCase() + filterYard.slice(1)}`);
+  if (selectedCustomer) parts.push(`Customer: ${selectedCustomer.name}`);
+  if (selectedMaterial) parts.push(`Item: ${selectedMaterial.name}`);
+  const subtitle = parts.length ? parts.join('  ·  ') : 'All records';
+
+  addHeader(doc, 'Sales Report', subtitle);
+
+  const stats = [
+    { label: 'Sales', value: filtered.length },
+    { label: filterMaterial ? `Total — ${selectedMaterial?.name}` : 'Total Value', value: Number(totalValue).toLocaleString('en-US', { minimumFractionDigits: 2 }) },
+  ];
+  if (filterMaterial && totalWeight != null) {
+    stats.push({ label: `Weight — ${selectedMaterial?.name}`, value: `${Number(totalWeight).toLocaleString('en-US', { minimumFractionDigits: 2 })} kg` });
+  }
+
+  let y = addStatRow(doc, stats, 40);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Date', 'Customer', 'Yard', 'Items', 'Created By', 'Total']],
+    body: filtered.map((sale) => {
+      const matchedItem = filterMaterial ? sale.items.find((item) => item.material === filterMaterial) : null;
+      const displayTotal = matchedItem ? matchedItem.totalPrice : sale.grandTotal;
+      return [
+        new Date(sale.createdAt).toLocaleDateString(),
+        sale.customerName || '—',
+        sale.yard || 'hospital',
+        sale.items.map((i) => i.materialName).join(', '),
+        sale.createdBy || '—',
+        Number(displayTotal).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+      ];
+    }),
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 9, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 8.5 },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: { 5: { halign: 'right', fontStyle: 'bold' } },
+    margin: { left: 14, right: 14 },
+  });
+
+  doc.save(`sales-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+export function exportIncomePDF({ filtered, totalFiltered, period, selectedTagObj }) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
+  const parts = [];
+  if (period !== 'all') parts.push(`Period: ${period}`);
+  if (selectedTagObj) parts.push(`Tag: ${selectedTagObj.name}`);
+  const subtitle = parts.length ? parts.join('  ·  ') : 'All records';
+
+  addHeader(doc, 'Income Report', subtitle);
+
+  const stats = [
+    { label: 'Records', value: filtered.length },
+    { label: 'Total Income', value: Number(totalFiltered).toLocaleString('en-US', { minimumFractionDigits: 2 }) },
+  ];
+
+  let y = addStatRow(doc, stats, 40);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Date', 'Description', 'Yard', 'Tags', 'Amount']],
+    body: filtered.map((inc) => [
+      new Date(inc.createdAt).toLocaleDateString(),
+      inc.description || '—',
+      inc.yard || 'hospital',
+      inc.tags?.map((t) => t.name).join(', ') || '—',
+      Number(inc.amount).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+    ]),
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 9, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 8.5 },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: { 4: { halign: 'right', fontStyle: 'bold' } },
+    margin: { left: 14, right: 14 },
+  });
+
+  doc.save(`income-report-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 export function exportExpensesPDF({ filtered, totalFiltered, period, selectedTagObj }) {

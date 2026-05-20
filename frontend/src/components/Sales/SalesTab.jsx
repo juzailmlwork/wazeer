@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import React from 'react';
 import api from '../../api/index.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { exportSalesPDF } from '../../utils/pdf.js';
+import SearchableSelect from '../SearchableSelect.jsx';
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -30,6 +33,7 @@ const PERIODS = [
 ];
 
 export default function SalesTab() {
+  const { isSuperAdmin } = useAuth();
   const [sales, setSales] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -40,6 +44,7 @@ export default function SalesTab() {
   const [customFrom, setCustomFrom] = useState(today());
   const [customTo, setCustomTo] = useState(today());
   const [expanded, setExpanded] = useState({});
+  const [filterYard, setFilterYard] = useState('');
 
   useEffect(() => { fetchData(); }, []);
 
@@ -60,6 +65,12 @@ export default function SalesTab() {
 
   const toggleExpand = (id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this sale record? This cannot be undone.')) return;
+    await api.delete(`/sales/${id}`);
+    setSales((prev) => prev.filter((s) => s._id !== id));
+  };
+
   const filtered = useMemo(() => {
     const todayStr = today();
     const dateFiltered = sales.filter((sale) => {
@@ -72,10 +83,13 @@ export default function SalesTab() {
     const customerFiltered = filterCustomer
       ? dateFiltered.filter((sale) => sale.customer?._id === filterCustomer)
       : dateFiltered;
-    return filterMaterial
+    const materialFiltered = filterMaterial
       ? customerFiltered.filter((sale) => sale.items.some((item) => item.material === filterMaterial))
       : customerFiltered;
-  }, [sales, period, customFrom, customTo, filterCustomer, filterMaterial]);
+    return filterYard
+      ? materialFiltered.filter((sale) => (sale.yard || 'hospital') === filterYard)
+      : materialFiltered;
+  }, [sales, period, customFrom, customTo, filterCustomer, filterMaterial, filterYard]);
 
   const selectedMaterial = useMemo(
     () => materials.find((m) => m._id === filterMaterial),
@@ -101,7 +115,7 @@ export default function SalesTab() {
     };
   }, [filtered, filterMaterial]);
 
-  const hasFilters = filterMaterial || filterCustomer;
+  const hasFilters = filterMaterial || filterCustomer || filterYard;
 
   return (
     <div>
@@ -137,18 +151,30 @@ export default function SalesTab() {
           )}
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <select value={filterCustomer} onChange={(e) => setFilterCustomer(e.target.value)} style={{ width: 180 }}>
-              <option value="">All Customers</option>
-              {customers.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
+            <select value={filterYard} onChange={(e) => setFilterYard(e.target.value)} style={{ width: 130 }}>
+              <option value="">All Yards</option>
+              <option value="hospital">Hospital</option>
+              <option value="nayawala">Nayawala</option>
             </select>
 
-            <select value={filterMaterial} onChange={(e) => setFilterMaterial(e.target.value)} style={{ width: 180 }}>
-              <option value="">All Items</option>
-              {materials.map((m) => <option key={m._id} value={m._id}>{m.name}</option>)}
-            </select>
+            <SearchableSelect
+              value={filterCustomer}
+              onChange={setFilterCustomer}
+              options={customers.map((c) => ({ value: c._id, label: c.name }))}
+              placeholder="All Customers"
+              style={{ width: 180 }}
+            />
+
+            <SearchableSelect
+              value={filterMaterial}
+              onChange={setFilterMaterial}
+              options={materials.map((m) => ({ value: m._id, label: m.name }))}
+              placeholder="All Items"
+              style={{ width: 180 }}
+            />
 
             {hasFilters && (
-              <button className="btn-ghost btn-sm" onClick={() => { setFilterMaterial(''); setFilterCustomer(''); }}>
+              <button className="btn-ghost btn-sm" onClick={() => { setFilterMaterial(''); setFilterCustomer(''); setFilterYard(''); }}>
                 Clear
               </button>
             )}
@@ -181,7 +207,17 @@ export default function SalesTab() {
             {filterCustomer && <span style={{ color: 'var(--text-muted)', fontSize: 13, fontWeight: 400, marginLeft: 8 }}>· {selectedCustomer?.name}</span>}
             {filterMaterial && <span style={{ color: 'var(--primary)', fontSize: 13, fontWeight: 400, marginLeft: 8 }}>· {selectedMaterial?.name}</span>}
           </h2>
-          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{filtered.length} records</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{filtered.length} records</span>
+            {filtered.length > 0 && (
+              <button
+                className="btn-ghost btn-sm"
+                onClick={() => exportSalesPDF({ filtered, filterMaterial, selectedMaterial, filterCustomer, selectedCustomer, filterYard, period, totalValue, totalWeight })}
+              >
+                ↓ PDF
+              </button>
+            )}
+          </div>
         </div>
 
         {loading ? (
@@ -196,8 +232,10 @@ export default function SalesTab() {
                 <th>Date</th>
                 <th>Items</th>
                 <th>Customer</th>
+                <th>Yard</th>
                 <th>Created By</th>
                 <th style={{ textAlign: 'right' }}>{filterMaterial ? `${selectedMaterial?.name} Amount` : 'Total'}</th>
+                {isSuperAdmin && <th style={{ width: 48 }} />}
               </tr>
             </thead>
             <tbody>
@@ -238,6 +276,11 @@ export default function SalesTab() {
                       <td style={{ color: sale.customerName ? 'var(--text)' : 'var(--text-muted)' }}>
                         {sale.customerName || '—'}
                       </td>
+                      <td>
+                        <span className="badge" style={{ background: sale.yard === 'hospital' ? '#dbeafe' : '#dcfce7', color: sale.yard === 'hospital' ? '#1d4ed8' : '#15803d', textTransform: 'capitalize' }}>
+                          {sale.yard || 'hospital'}
+                        </span>
+                      </td>
                       <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{sale.createdBy || '—'}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-dark)', whiteSpace: 'nowrap' }}>
                         {Number(displayTotal).toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -247,11 +290,22 @@ export default function SalesTab() {
                           </div>
                         )}
                       </td>
+                      {isSuperAdmin && (
+                        <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
+                          <button
+                            onClick={() => handleDelete(sale._id)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger, #ef4444)', fontSize: 15, padding: '2px 6px', borderRadius: 4 }}
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      )}
                     </tr>
 
                     {expanded[sale._id] && (
                       <tr>
-                        <td colSpan={6} style={{ padding: 0, background: '#f8fafc' }}>
+                        <td colSpan={isSuperAdmin ? 8 : 7} style={{ padding: 0, background: '#f8fafc' }}>
                           <div style={{ padding: '12px 20px 12px 48px' }}>
                             <table style={{ width: '100%' }}>
                               <thead>

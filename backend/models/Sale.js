@@ -16,11 +16,13 @@ const saleSchema = new mongoose.Schema(
     customerName: { type: String, default: null },
     grandTotal: { type: Number, required: true },
     createdBy: { type: String },
+    yard: { type: String, enum: ['hospital', 'nayawala'], default: 'hospital' },
   },
   { timestamps: true }
 );
 
 saleSchema.index({ createdAt: -1 });
 saleSchema.index({ customer: 1 });
+saleSchema.index({ yard: 1 });
 
 module.exports = mongoose.model('Sale', saleSchema);
