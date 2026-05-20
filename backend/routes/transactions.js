@@ -19,13 +19,23 @@ router.get('/', auth, async (req, res) => {
 router.post('/', auth, async (req, res) => {
   try {
     const { transactionDate, ...rest } = req.body;
-    const doc = { ...rest, createdBy: req.user.username };
+    const doc = { ...rest, createdBy: req.user.username, status: req.user.role === 'super_admin' ? 'approved' : 'pending', approvedBy: req.user.role === 'super_admin' ? req.user.username : null };
     if (transactionDate) doc.createdAt = new Date(transactionDate);
     const transaction = new Transaction(doc);
     await transaction.save();
     res.status(201).json(transaction);
   } catch (err) {
     res.status(400).json({ message: err.message });
+  }
+});
+
+router.patch('/:id/approve', auth, async (req, res) => {
+  if (req.user.role !== 'super_admin') return res.status(403).json({ message: 'Only super admin can approve' });
+  try {
+    const doc = await Transaction.findByIdAndUpdate(req.params.id, { status: 'approved', approvedBy: req.user.username }, { new: true });
+    res.json(doc);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 

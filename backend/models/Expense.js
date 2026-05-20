@@ -7,6 +7,8 @@ const expenseSchema = new mongoose.Schema(
     tags: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Tag' }],
     createdBy: { type: String },
     yard: { type: String, enum: ['hospital', 'nayawala'], default: 'hospital' },
+    status: { type: String, enum: ['pending', 'approved'], default: 'pending' },
+    approvedBy: { type: String, default: null },
   },
   { timestamps: true }
 );

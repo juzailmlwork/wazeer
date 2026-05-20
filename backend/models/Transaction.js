@@ -17,6 +17,8 @@ const transactionSchema = new mongoose.Schema(
     grandTotal: { type: Number, required: true },
     createdBy: { type: String },
     yard: { type: String, enum: ['hospital', 'nayawala'], default: 'hospital' },
+    status: { type: String, enum: ['pending', 'approved'], default: 'pending' },
+    approvedBy: { type: String, default: null },
   },
   { timestamps: true }
 );

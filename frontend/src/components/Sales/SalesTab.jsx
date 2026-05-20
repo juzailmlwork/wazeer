@@ -71,6 +71,17 @@ export default function SalesTab() {
     setSales((prev) => prev.filter((s) => s._id !== id));
   };
 
+  const handleApprove = async (id) => {
+    const { data } = await api.patch(`/sales/${id}/approve`);
+    setSales((prev) => prev.map((s) => s._id === id ? { ...s, status: data.status } : s));
+  };
+
+  const handleReject = async (id) => {
+    if (!window.confirm('Reject and delete this sale record?')) return;
+    await api.delete(`/sales/${id}`);
+    setSales((prev) => prev.filter((s) => s._id !== id));
+  };
+
   const filtered = useMemo(() => {
     const todayStr = today();
     const dateFiltered = sales.filter((sale) => {
@@ -234,8 +245,9 @@ export default function SalesTab() {
                 <th>Customer</th>
                 <th>Yard</th>
                 <th>Created By</th>
+                <th>Status</th>
                 <th style={{ textAlign: 'right' }}>{filterMaterial ? `${selectedMaterial?.name} Amount` : 'Total'}</th>
-                {isSuperAdmin && <th style={{ width: 48 }} />}
+                {isSuperAdmin && <th style={{ width: 120 }} />}
               </tr>
             </thead>
             <tbody>
@@ -282,6 +294,13 @@ export default function SalesTab() {
                         </span>
                       </td>
                       <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{sale.createdBy || '—'}</td>
+                      <td>
+                        <span className="badge" style={sale.status === 'approved'
+                          ? { background: '#dcfce7', color: '#15803d' }
+                          : { background: '#fef9c3', color: '#a16207' }}>
+                          {sale.status === 'approved' ? 'Approved' : 'Pending'}
+                        </span>
+                      </td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-dark)', whiteSpace: 'nowrap' }}>
                         {Number(displayTotal).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         {matchedItem && (
@@ -291,21 +310,22 @@ export default function SalesTab() {
                         )}
                       </td>
                       {isSuperAdmin && (
-                        <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
-                          <button
-                            onClick={() => handleDelete(sale._id)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger, #ef4444)', fontSize: 15, padding: '2px 6px', borderRadius: 4 }}
-                            title="Delete"
-                          >
-                            ✕
-                          </button>
+                        <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+                          {sale.status === 'pending' ? (
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              <button className="btn-primary btn-sm" onClick={() => handleApprove(sale._id)}>Approve</button>
+                              <button className="btn-danger btn-sm" onClick={() => handleReject(sale._id)}>Reject</button>
+                            </div>
+                          ) : (
+                            <button className="btn-danger btn-sm" onClick={() => handleDelete(sale._id)}>Delete</button>
+                          )}
                         </td>
                       )}
                     </tr>
 
                     {expanded[sale._id] && (
                       <tr>
-                        <td colSpan={isSuperAdmin ? 8 : 7} style={{ padding: 0, background: '#f8fafc' }}>
+                        <td colSpan={isSuperAdmin ? 9 : 8} style={{ padding: 0, background: '#f8fafc' }}>
                           <div style={{ padding: '12px 20px 12px 48px' }}>
                             <table style={{ width: '100%' }}>
                               <thead>

@@ -15,7 +15,7 @@ router.get('/', auth, async (req, res) => {
 router.post('/', auth, async (req, res) => {
   try {
     const { incomeDate, ...rest } = req.body;
-    const doc = { ...rest, createdBy: req.user.username };
+    const doc = { ...rest, createdBy: req.user.username, status: req.user.role === 'super_admin' ? 'approved' : 'pending', approvedBy: req.user.role === 'super_admin' ? req.user.username : null };
     if (incomeDate) doc.createdAt = new Date(incomeDate);
     const income = new Income(doc);
     await income.save();
@@ -23,6 +23,16 @@ router.post('/', auth, async (req, res) => {
     res.status(201).json(populated);
   } catch (err) {
     res.status(400).json({ message: err.message });
+  }
+});
+
+router.patch('/:id/approve', auth, async (req, res) => {
+  if (req.user.role !== 'super_admin') return res.status(403).json({ message: 'Only super admin can approve' });
+  try {
+    const doc = await Income.findByIdAndUpdate(req.params.id, { status: 'approved', approvedBy: req.user.username }, { new: true }).populate('tags', 'name color');
+    res.json(doc);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 

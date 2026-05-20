@@ -36,6 +36,20 @@ router.post('/', auth, superAdminOnly, async (req, res) => {
   }
 });
 
+router.patch('/:id/password', auth, superAdminOnly, async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password || password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+    const hashed = await bcrypt.hash(password, 10);
+    await User.findByIdAndUpdate(req.params.id, { password: hashed });
+    res.json({ message: 'Password updated successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 router.delete('/:id', auth, superAdminOnly, async (req, res) => {
   try {
     const user = await User.findById(req.params.id);

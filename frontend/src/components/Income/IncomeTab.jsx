@@ -117,6 +117,21 @@ export default function IncomeTab() {
     }
   };
 
+  const handleApprove = async (id) => {
+    const { data } = await api.patch(`/incomes/${id}/approve`);
+    setIncomes((prev) => prev.map((inc) => inc._id === id ? { ...inc, status: data.status } : inc));
+  };
+
+  const handleReject = async (id) => {
+    if (!confirm('Reject and delete this income record?')) return;
+    try {
+      await api.delete(`/incomes/${id}`);
+      setIncomes(incomes.filter((inc) => inc._id !== id));
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to delete');
+    }
+  };
+
   const handleDeleteTag = async (id) => {
     if (!confirm('Delete this tag?')) return;
     try {
@@ -424,8 +439,9 @@ export default function IncomeTab() {
                   <th>Yard</th>
                   <th>Tags</th>
                   <th>Created By</th>
+                  <th>Status</th>
                   <th style={{ textAlign: 'right' }}>Amount</th>
-                  {isSuperAdmin && <th />}
+                  {isSuperAdmin && <th style={{ width: 120 }} />}
                 </tr>
               </thead>
               <tbody>
@@ -454,12 +470,26 @@ export default function IncomeTab() {
                       </div>
                     </td>
                     <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{inc.createdBy || '—'}</td>
+                    <td>
+                      <span className="badge" style={inc.status === 'approved'
+                        ? { background: '#dcfce7', color: '#15803d' }
+                        : { background: '#fef9c3', color: '#a16207' }}>
+                        {inc.status === 'approved' ? 'Approved' : 'Pending'}
+                      </span>
+                    </td>
                     <td style={{ fontWeight: 600, color: 'var(--primary-dark)', whiteSpace: 'nowrap', textAlign: 'right' }}>
                       {Number(inc.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </td>
                     {isSuperAdmin && (
-                      <td>
-                        <button className="btn-danger btn-sm" onClick={() => handleDelete(inc._id)}>Delete</button>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {inc.status === 'pending' ? (
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button className="btn-primary btn-sm" onClick={() => handleApprove(inc._id)}>Approve</button>
+                            <button className="btn-danger btn-sm" onClick={() => handleReject(inc._id)}>Reject</button>
+                          </div>
+                        ) : (
+                          <button className="btn-danger btn-sm" onClick={() => handleDelete(inc._id)}>Delete</button>
+                        )}
                       </td>
                     )}
                   </tr>

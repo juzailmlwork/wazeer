@@ -117,6 +117,21 @@ export default function ExpensesTab() {
     }
   };
 
+  const handleApprove = async (id) => {
+    const { data } = await api.patch(`/expenses/${id}/approve`);
+    setExpenses((prev) => prev.map((e) => e._id === id ? { ...e, status: data.status } : e));
+  };
+
+  const handleReject = async (id) => {
+    if (!confirm('Reject and delete this expense?')) return;
+    try {
+      await api.delete(`/expenses/${id}`);
+      setExpenses(expenses.filter((e) => e._id !== id));
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to delete');
+    }
+  };
+
   const handleDeleteTag = async (id) => {
     if (!confirm('Delete this tag?')) return;
     try {
@@ -429,8 +444,9 @@ export default function ExpensesTab() {
                   <th>Description</th>
                   <th>Tags</th>
                   <th>Created By</th>
+                  <th>Status</th>
                   <th style={{ textAlign: 'right' }}>Amount</th>
-                  {isSuperAdmin && <th />}
+                  {isSuperAdmin && <th style={{ width: 120 }} />}
                 </tr>
               </thead>
               <tbody>
@@ -454,12 +470,26 @@ export default function ExpensesTab() {
                       </div>
                     </td>
                     <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{e.createdBy || '—'}</td>
+                    <td>
+                      <span className="badge" style={e.status === 'approved'
+                        ? { background: '#dcfce7', color: '#15803d' }
+                        : { background: '#fef9c3', color: '#a16207' }}>
+                        {e.status === 'approved' ? 'Approved' : 'Pending'}
+                      </span>
+                    </td>
                     <td style={{ fontWeight: 600, color: 'var(--danger)', whiteSpace: 'nowrap', textAlign: 'right' }}>
                       {Number(e.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </td>
                     {isSuperAdmin && (
-                      <td>
-                        <button className="btn-danger btn-sm" onClick={() => handleDelete(e._id)}>Delete</button>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {e.status === 'pending' ? (
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button className="btn-primary btn-sm" onClick={() => handleApprove(e._id)}>Approve</button>
+                            <button className="btn-danger btn-sm" onClick={() => handleReject(e._id)}>Reject</button>
+                          </div>
+                        ) : (
+                          <button className="btn-danger btn-sm" onClick={() => handleDelete(e._id)}>Delete</button>
+                        )}
                       </td>
                     )}
                   </tr>

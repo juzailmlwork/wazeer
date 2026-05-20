@@ -13,6 +13,11 @@ export default function UsersTab() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [pwModal, setPwModal] = useState(null); // { id, username }
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [pwError, setPwError] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
 
   useEffect(() => { fetchUsers(); }, []);
 
@@ -50,9 +55,36 @@ export default function UsersTab() {
     }
   };
 
+  const openPwModal = (user) => {
+    setPwModal(user);
+    setNewPassword('');
+    setPwError('');
+    setShowNewPassword(false);
+  };
+
+  const closePwModal = () => {
+    setPwModal(null);
+    setNewPassword('');
+    setPwError('');
+  };
+
+  const handlePasswordUpdate = async (e) => {
+    e.preventDefault();
+    setPwError('');
+    setPwSaving(true);
+    try {
+      await api.patch(`/users/${pwModal._id}/password`, { password: newPassword });
+      closePwModal();
+    } catch (err) {
+      setPwError(err.response?.data?.message || 'Failed to update password');
+    } finally {
+      setPwSaving(false);
+    }
+  };
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 20, alignItems: 'start' }}>
-      {/* Form */}
+      {/* Create form */}
       <div className="card">
         <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Create User</h2>
         <form onSubmit={handleSubmit}>
@@ -93,11 +125,7 @@ export default function UsersTab() {
               <button
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
-                style={{
-                  position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: 'var(--text-muted)', fontSize: 12, padding: 0,
-                }}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, padding: 0 }}
               >
                 {showPassword ? 'Hide' : 'Show'}
               </button>
@@ -107,10 +135,7 @@ export default function UsersTab() {
           <div className="form-group" style={{ marginBottom: 20 }}>
             <label>Role</label>
             <div style={{ display: 'flex', gap: 6 }}>
-              {[
-                { value: 'normal_admin', label: 'Normal Admin' },
-                { value: 'super_admin', label: 'Super Admin' },
-              ].map((r) => (
+              {[{ value: 'normal_admin', label: 'Normal Admin' }, { value: 'super_admin', label: 'Super Admin' }].map((r) => (
                 <button
                   key={r.value}
                   type="button"
@@ -165,10 +190,7 @@ export default function UsersTab() {
                   <td style={{ fontWeight: 500 }}>{u.name}</td>
                   <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{u.username}</td>
                   <td>
-                    <span
-                      className="badge"
-                      style={{ background: ROLE_COLORS[u.role]?.bg, color: ROLE_COLORS[u.role]?.color }}
-                    >
+                    <span className="badge" style={{ background: ROLE_COLORS[u.role]?.bg, color: ROLE_COLORS[u.role]?.color }}>
                       {ROLE_LABELS[u.role] || u.role}
                     </span>
                   </td>
@@ -176,14 +198,16 @@ export default function UsersTab() {
                     {new Date(u.createdAt).toLocaleDateString()}
                   </td>
                   <td>
-                    {u.username !== currentUser?.username && (
-                      <button
-                        className="btn-danger btn-sm"
-                        onClick={() => handleDelete(u._id, u.username)}
-                      >
-                        Delete
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn-ghost btn-sm" onClick={() => openPwModal(u)}>
+                        Change Password
                       </button>
-                    )}
+                      {u.username !== currentUser?.username && (
+                        <button className="btn-danger btn-sm" onClick={() => handleDelete(u._id, u.username)}>
+                          Delete
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -191,6 +215,52 @@ export default function UsersTab() {
           </table>
         )}
       </div>
+
+      {/* Change Password Modal */}
+      {pwModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}
+          onClick={(e) => e.target === e.currentTarget && closePwModal()}
+        >
+          <div className="card" style={{ width: 360, boxShadow: 'var(--shadow-md)' }}>
+            <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Change Password</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
+              Updating password for <strong>{pwModal.name}</strong> ({pwModal.username})
+            </p>
+            <form onSubmit={handlePasswordUpdate}>
+              <div className="form-group" style={{ marginBottom: 20 }}>
+                <label>New Password</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    placeholder="Min. 6 characters"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    minLength={6}
+                    required
+                    autoFocus
+                    style={{ paddingRight: 70 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((v) => !v)}
+                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, padding: 0 }}
+                  >
+                    {showNewPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+              {pwError && <p className="error-msg" style={{ marginBottom: 10 }}>{pwError}</p>}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="submit" className="btn-primary" style={{ flex: 1 }} disabled={pwSaving}>
+                  {pwSaving ? 'Saving...' : 'Update Password'}
+                </button>
+                <button type="button" className="btn-ghost" onClick={closePwModal}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

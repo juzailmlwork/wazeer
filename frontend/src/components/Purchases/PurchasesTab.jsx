@@ -71,6 +71,17 @@ export default function PurchasesTab() {
     setTransactions((prev) => prev.filter((tx) => tx._id !== id));
   };
 
+  const handleApprove = async (id) => {
+    const { data } = await api.patch(`/transactions/${id}/approve`);
+    setTransactions((prev) => prev.map((tx) => tx._id === id ? { ...tx, status: data.status } : tx));
+  };
+
+  const handleReject = async (id) => {
+    if (!window.confirm('Reject and delete this purchase record?')) return;
+    await api.delete(`/transactions/${id}`);
+    setTransactions((prev) => prev.filter((tx) => tx._id !== id));
+  };
+
   const filtered = useMemo(() => {
     const todayStr = today();
     const dateFiltered = transactions.filter((tx) => {
@@ -235,8 +246,9 @@ export default function PurchasesTab() {
                 <th>Supplier</th>
                 <th>Yard</th>
                 <th>Created By</th>
+                <th>Status</th>
                 <th style={{ textAlign: 'right' }}>{filterMaterial ? `${selectedMaterial?.name} Amount` : 'Total'}</th>
-                {isSuperAdmin && <th style={{ width: 48 }} />}
+                {isSuperAdmin && <th style={{ width: 120 }} />}
               </tr>
             </thead>
             <tbody>
@@ -283,6 +295,13 @@ export default function PurchasesTab() {
                         </span>
                       </td>
                       <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{tx.createdBy || '—'}</td>
+                      <td>
+                        <span className="badge" style={tx.status === 'approved'
+                          ? { background: '#dcfce7', color: '#15803d' }
+                          : { background: '#fef9c3', color: '#a16207' }}>
+                          {tx.status === 'approved' ? 'Approved' : 'Pending'}
+                        </span>
+                      </td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-dark)', whiteSpace: 'nowrap' }}>
                         {Number(displayTotal).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         {matchedItem && (
@@ -292,21 +311,22 @@ export default function PurchasesTab() {
                         )}
                       </td>
                       {isSuperAdmin && (
-                        <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
-                          <button
-                            onClick={() => handleDelete(tx._id)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger, #ef4444)', fontSize: 15, padding: '2px 6px', borderRadius: 4 }}
-                            title="Delete"
-                          >
-                            ✕
-                          </button>
+                        <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+                          {tx.status === 'pending' ? (
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              <button className="btn-primary btn-sm" onClick={() => handleApprove(tx._id)}>Approve</button>
+                              <button className="btn-danger btn-sm" onClick={() => handleReject(tx._id)}>Reject</button>
+                            </div>
+                          ) : (
+                            <button className="btn-danger btn-sm" onClick={() => handleDelete(tx._id)}>Delete</button>
+                          )}
                         </td>
                       )}
                     </tr>
 
                     {expanded[tx._id] && (
                       <tr>
-                        <td colSpan={isSuperAdmin ? 8 : 7} style={{ padding: 0, background: '#f8fafc' }}>
+                        <td colSpan={isSuperAdmin ? 9 : 8} style={{ padding: 0, background: '#f8fafc' }}>
                           <div style={{ padding: '12px 20px 12px 48px' }}>
                             <table style={{ width: '100%' }}>
                               <thead>
