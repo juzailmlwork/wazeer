@@ -141,6 +141,107 @@ export function exportSalesPDF({ filtered, filterMaterial, selectedMaterial, fil
   doc.save(`sales-report-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
+export async function exportSalaryPDF({ employee, month, year, apiGet }) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 });
+  const fmtH = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+  // Fetch all records (no month filter) for the scope
+  const params = employee ? { employee: employee._id } : {};
+  const { data: allRecords } = await apiGet('/salary-records', { params });
+
+  if (employee) {
+    // Single employee: group by month-year
+    addHeader(doc, `Salary Report — ${employee.name}`, 'All months summary');
+    const byMonth = {};
+    allRecords.forEach((r) => {
+      const d = new Date(r.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`;
+      if (!byMonth[key]) byMonth[key] = { label: `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`, hours: 0, amount: 0 };
+      byMonth[key].hours += r.hours;
+      byMonth[key].amount += r.amount;
+    });
+    const rows = Object.keys(byMonth).sort().reverse().map((k) => [
+      byMonth[k].label,
+      fmtH(byMonth[k].hours),
+      fmt(byMonth[k].amount),
+    ]);
+    const totalH = allRecords.reduce((s, r) => s + r.hours, 0);
+    const totalA = allRecords.reduce((s, r) => s + r.amount, 0);
+    const stats = [
+      { label: 'Total Hours', value: fmtH(totalH) },
+      { label: 'Total Paid', value: fmt(totalA) },
+    ];
+    let y = addStatRow(doc, stats, 40);
+    autoTable(doc, {
+      startY: y,
+      head: [['Month', 'Hours', 'Amount']],
+      body: rows,
+      foot: [['Total', fmtH(totalH), fmt(totalA)]],
+      headStyles: { fillColor: BRAND_COLOR, fontSize: 9, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 8.5 },
+      footStyles: { fillColor: [240, 253, 244], textColor: BRAND_COLOR, fontStyle: 'bold', fontSize: 9 },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right', fontStyle: 'bold' } },
+      margin: { left: 14, right: 14 },
+    });
+    doc.save(`salary-${employee.name.toLowerCase().replace(/\s+/g, '-')}-all-months.pdf`);
+  } else {
+    // All employees: group by employee, then month-year
+    addHeader(doc, 'Salary Report — All Employees', 'Monthly summary per employee');
+    const byEmp = {};
+    allRecords.forEach((r) => {
+      const empKey = r.employeeName;
+      const d = new Date(r.date);
+      const mKey = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`;
+      const mLabel = `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
+      if (!byEmp[empKey]) byEmp[empKey] = { months: {}, totalH: 0, totalA: 0 };
+      if (!byEmp[empKey].months[mKey]) byEmp[empKey].months[mKey] = { label: mLabel, hours: 0, amount: 0 };
+      byEmp[empKey].months[mKey].hours += r.hours;
+      byEmp[empKey].months[mKey].amount += r.amount;
+      byEmp[empKey].totalH += r.hours;
+      byEmp[empKey].totalA += r.amount;
+    });
+    const grandH = allRecords.reduce((s, r) => s + r.hours, 0);
+    const grandA = allRecords.reduce((s, r) => s + r.amount, 0);
+    const stats = [
+      { label: 'Employees', value: Object.keys(byEmp).length },
+      { label: 'Total Hours', value: fmtH(grandH) },
+      { label: 'Total Paid', value: fmt(grandA) },
+    ];
+    let y = addStatRow(doc, stats, 40);
+    Object.keys(byEmp).sort().forEach((empName) => {
+      const emp = byEmp[empName];
+      const rows = Object.keys(emp.months).sort().reverse().map((k) => [
+        emp.months[k].label,
+        fmtH(emp.months[k].hours),
+        fmt(emp.months[k].amount),
+      ]);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...BRAND_COLOR);
+      doc.text(empName, 14, y + 5);
+      y += 8;
+      autoTable(doc, {
+        startY: y,
+        head: [['Month', 'Hours', 'Amount']],
+        body: rows,
+        foot: [['Total', fmtH(emp.totalH), fmt(emp.totalA)]],
+        headStyles: { fillColor: BRAND_COLOR, fontSize: 8.5, fontStyle: 'bold' },
+        bodyStyles: { fontSize: 8 },
+        footStyles: { fillColor: [240, 253, 244], textColor: BRAND_COLOR, fontStyle: 'bold', fontSize: 8.5 },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right', fontStyle: 'bold' } },
+        margin: { left: 14, right: 14 },
+      });
+      y = doc.lastAutoTable.finalY + 10;
+    });
+    doc.save(`salary-all-employees-${new Date().toISOString().slice(0, 10)}.pdf`);
+  }
+}
+
+const MONTH_NAMES_PDF = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
 export function exportIncomePDF({ filtered, totalFiltered, period, selectedTagObj }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
 

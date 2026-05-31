@@ -33,23 +33,29 @@ export default function PLTab() {
   const [transactions, setTransactions] = useState([]);
   const [sales, setSales] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [incomes, setIncomes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('today');
   const [customFrom, setCustomFrom] = useState(thisMonthRange().from);
   const [customTo, setCustomTo] = useState(thisMonthRange().to);
+  const [expanded, setExpanded] = useState({});
+
+  const toggle = (id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     try {
-      const [txRes, saleRes, expRes] = await Promise.all([
+      const [txRes, saleRes, expRes, incRes] = await Promise.all([
         api.get('/transactions'),
         api.get('/sales'),
         api.get('/expenses'),
+        api.get('/incomes'),
       ]);
       setTransactions(txRes.data);
       setSales(saleRes.data);
       setExpenses(expRes.data);
+      setIncomes(incRes.data);
     } finally {
       setLoading(false);
     }
@@ -74,6 +80,10 @@ export default function PLTab() {
     () => expenses.filter((e) => inRange(localDate(e.createdAt), from, to)),
     [expenses, from, to]
   );
+  const filteredIncomes = useMemo(
+    () => incomes.filter((inc) => inRange(localDate(inc.createdAt), from, to)),
+    [incomes, from, to]
+  );
 
   const totalRevenue = useMemo(
     () => filteredSales.reduce((sum, s) => sum + s.grandTotal, 0),
@@ -87,7 +97,11 @@ export default function PLTab() {
     () => filteredExpenses.reduce((sum, e) => sum + e.amount, 0),
     [filteredExpenses]
   );
-  const netPL = totalRevenue - totalPurchases - totalExpenses;
+  const totalIncome = useMemo(
+    () => filteredIncomes.reduce((sum, inc) => sum + inc.amount, 0),
+    [filteredIncomes]
+  );
+  const netPL = totalRevenue + totalIncome - totalPurchases - totalExpenses;
 
   const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 });
 
@@ -136,8 +150,9 @@ export default function PLTab() {
       </div>
 
       {/* Summary cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 24 }}>
         <SummaryCard label="Sales Revenue" value={fmt(totalRevenue)} color="var(--primary-dark)" bg="var(--primary-light)" />
+        <SummaryCard label="Other Income" value={fmt(totalIncome)} color="#0891b2" bg="#e0f2fe" />
         <SummaryCard label="Purchases Cost" value={fmt(totalPurchases)} color="#b45309" bg="#fef3c7" />
         <SummaryCard label="Expenses" value={fmt(totalExpenses)} color="#dc2626" bg="#fee2e2" />
         <SummaryCard
@@ -152,7 +167,7 @@ export default function PLTab() {
       {/* Three section tables */}
       <div style={{ display: 'grid', gap: 20 }}>
         {/* Sales */}
-        <Section title="Sales" count={filteredSales.length} total={fmt(totalRevenue)} color="var(--primary-dark)">
+        <Section title="Sales" count={filteredSales.length} total={fmt(totalRevenue)} color="var(--primary-dark)" expanded={expanded.sales} onToggle={() => toggle('sales')}>
           {filteredSales.length === 0 ? (
             <div className="empty-state">No sales in this period.</div>
           ) : (
@@ -185,8 +200,42 @@ export default function PLTab() {
           )}
         </Section>
 
+        {/* Other Income */}
+        <Section title="Other Income" count={filteredIncomes.length} total={fmt(totalIncome)} color="#0891b2" expanded={expanded.income} onToggle={() => toggle('income')}>
+          {filteredIncomes.length === 0 ? (
+            <div className="empty-state">No income in this period.</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Description</th>
+                  <th>Tags</th>
+                  <th style={{ textAlign: 'right' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredIncomes.map((inc) => (
+                  <tr key={inc._id}>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 13, whiteSpace: 'nowrap' }}>
+                      {new Date(inc.createdAt).toLocaleDateString()}
+                    </td>
+                    <td>{inc.description || '—'}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                      {inc.tags?.map((t) => t.name).join(', ') || '—'}
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: '#0891b2' }}>
+                      {fmt(inc.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Section>
+
         {/* Purchases */}
-        <Section title="Purchases" count={filteredTransactions.length} total={fmt(totalPurchases)} color="#b45309">
+        <Section title="Purchases" count={filteredTransactions.length} total={fmt(totalPurchases)} color="#b45309" expanded={expanded.purchases} onToggle={() => toggle('purchases')}>
           {filteredTransactions.length === 0 ? (
             <div className="empty-state">No purchases in this period.</div>
           ) : (
@@ -220,7 +269,7 @@ export default function PLTab() {
         </Section>
 
         {/* Expenses */}
-        <Section title="Expenses" count={filteredExpenses.length} total={fmt(totalExpenses)} color="#dc2626">
+        <Section title="Expenses" count={filteredExpenses.length} total={fmt(totalExpenses)} color="#dc2626" expanded={expanded.expenses} onToggle={() => toggle('expenses')}>
           {filteredExpenses.length === 0 ? (
             <div className="empty-state">No expenses in this period.</div>
           ) : (
@@ -266,17 +315,23 @@ function SummaryCard({ label, value, color, bg, large }) {
   );
 }
 
-function Section({ title, count, total, color, children }) {
+function Section({ title, count, total, color, expanded, onToggle, children }) {
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ fontSize: 15, fontWeight: 600, color }}>{title}</h2>
+      <div
+        onClick={onToggle}
+        style={{ padding: '14px 20px', borderBottom: expanded ? '1px solid var(--border)' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', transition: 'transform 0.15s', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+          <h2 style={{ fontSize: 15, fontWeight: 600, color }}>{title}</h2>
+        </div>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
           <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{count} records</span>
           <span style={{ fontWeight: 700, color, fontSize: 15 }}>{total}</span>
         </div>
       </div>
-      {children}
+      {expanded && children}
     </div>
   );
 }

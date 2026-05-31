@@ -51,6 +51,7 @@ export default function IncomeTab() {
   const [customFrom, setCustomFrom] = useState(todayStr());
   const [customTo, setCustomTo] = useState(todayStr());
   const [filterTag, setFilterTag] = useState('');
+  const [filterYard, setFilterYard] = useState('');
 
   useEffect(() => { fetchData(); }, []);
 
@@ -146,18 +147,18 @@ export default function IncomeTab() {
 
   const filtered = useMemo(() => {
     const today = todayStr();
-    const dateFiltered = incomes.filter((inc) => {
-      if (period === 'all') return true;
-      const d = localDate(inc.createdAt);
-      if (period === 'today') return d === today;
-      if (period === 'month') { const { from, to } = thisMonthRange(); return inRange(d, from, to); }
-      if (period === 'custom') return inRange(d, customFrom, customTo);
+    return incomes.filter((inc) => {
+      if (period !== 'all') {
+        const d = localDate(inc.createdAt);
+        if (period === 'today' && d !== today) return false;
+        if (period === 'month') { const { from, to } = thisMonthRange(); if (!inRange(d, from, to)) return false; }
+        if (period === 'custom' && !inRange(d, customFrom, customTo)) return false;
+      }
+      if (filterYard && inc.yard !== filterYard) return false;
+      if (filterTag && !inc.tags?.some((t) => t._id === filterTag)) return false;
       return true;
     });
-    return filterTag
-      ? dateFiltered.filter((inc) => inc.tags?.some((t) => t._id === filterTag))
-      : dateFiltered;
-  }, [incomes, period, customFrom, customTo, filterTag]);
+  }, [incomes, period, customFrom, customTo, filterTag, filterYard]);
 
   const totalFiltered = useMemo(
     () => filtered.reduce((sum, inc) => sum + inc.amount, 0),
@@ -375,16 +376,23 @@ export default function IncomeTab() {
               </div>
             )}
 
-            {tags.length > 0 && (
-              <div style={{ marginLeft: 'auto' }}>
-                <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)} style={{ width: 180 }}>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+              {/* Yard filter */}
+              <select value={filterYard} onChange={(e) => setFilterYard(e.target.value)} style={{ width: 140 }}>
+                <option value="">All Yards</option>
+                <option value="hospital">Hospital</option>
+                <option value="nayawala">Nayawala</option>
+              </select>
+              {/* Tag filter */}
+              {tags.length > 0 && (
+                <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)} style={{ width: 160 }}>
                   <option value="">All Tags</option>
                   {tags.map((t) => (
                     <option key={t._id} value={t._id}>{t.name}</option>
                   ))}
                 </select>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
 

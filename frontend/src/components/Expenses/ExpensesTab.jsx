@@ -51,6 +51,7 @@ export default function ExpensesTab() {
   const [customFrom, setCustomFrom] = useState(todayStr());
   const [customTo, setCustomTo] = useState(todayStr());
   const [filterTag, setFilterTag] = useState('');
+  const [filterYard, setFilterYard] = useState('');
 
   useEffect(() => { fetchData(); }, []);
 
@@ -146,18 +147,18 @@ export default function ExpensesTab() {
 
   const filtered = useMemo(() => {
     const today = todayStr();
-    const dateFiltered = expenses.filter((e) => {
-      if (period === 'all') return true;
-      const d = localDate(e.createdAt);
-      if (period === 'today') return d === today;
-      if (period === 'month') { const { from, to } = thisMonthRange(); return inRange(d, from, to); }
-      if (period === 'custom') return inRange(d, customFrom, customTo);
+    return expenses.filter((e) => {
+      if (period !== 'all') {
+        const d = localDate(e.createdAt);
+        if (period === 'today' && d !== today) return false;
+        if (period === 'month') { const { from, to } = thisMonthRange(); if (!inRange(d, from, to)) return false; }
+        if (period === 'custom' && !inRange(d, customFrom, customTo)) return false;
+      }
+      if (filterYard && e.yard !== filterYard) return false;
+      if (filterTag && !e.tags?.some((t) => t._id === filterTag)) return false;
       return true;
     });
-    return filterTag
-      ? dateFiltered.filter((e) => e.tags?.some((t) => t._id === filterTag))
-      : dateFiltered;
-  }, [expenses, period, customFrom, customTo, filterTag]);
+  }, [expenses, period, customFrom, customTo, filterTag, filterYard]);
 
   const totalFiltered = useMemo(
     () => filtered.reduce((sum, e) => sum + e.amount, 0),
@@ -377,21 +378,23 @@ export default function ExpensesTab() {
               </div>
             )}
 
-            {/* Tag filter */}
-            {tags.length > 0 && (
-              <div style={{ marginLeft: 'auto' }}>
-                <select
-                  value={filterTag}
-                  onChange={(e) => setFilterTag(e.target.value)}
-                  style={{ width: 180 }}
-                >
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+              {/* Yard filter */}
+              <select value={filterYard} onChange={(e) => setFilterYard(e.target.value)} style={{ width: 140 }}>
+                <option value="">All Yards</option>
+                <option value="hospital">Hospital</option>
+                <option value="nayawala">Nayawala</option>
+              </select>
+              {/* Tag filter */}
+              {tags.length > 0 && (
+                <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)} style={{ width: 160 }}>
                   <option value="">All Tags</option>
                   {tags.map((t) => (
                     <option key={t._id} value={t._id}>{t.name}</option>
                   ))}
                 </select>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
@@ -442,6 +445,7 @@ export default function ExpensesTab() {
                 <tr>
                   <th>Date</th>
                   <th>Description</th>
+                  <th>Yard</th>
                   <th>Tags</th>
                   <th>Created By</th>
                   <th>Status</th>
@@ -456,6 +460,11 @@ export default function ExpensesTab() {
                       {new Date(e.createdAt).toLocaleDateString()}
                     </td>
                     <td>{e.description || <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                    <td>
+                      <span className="badge" style={{ background: e.yard === 'hospital' ? '#dbeafe' : '#dcfce7', color: e.yard === 'hospital' ? '#1d4ed8' : '#15803d', textTransform: 'capitalize' }}>
+                        {e.yard || 'hospital'}
+                      </span>
+                    </td>
                     <td>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {e.tags?.map((tag) => (

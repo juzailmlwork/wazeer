@@ -21,6 +21,8 @@ app.use('/api/sales', require('./routes/sales'));
 app.use('/api/incomes', require('./routes/incomes'));
 app.use('/api/income-tags', require('./routes/income-tags'));
 app.use('/api/users', require('./routes/users'));
+app.use('/api/employees', require('./routes/employees'));
+app.use('/api/salary-records', require('./routes/salary-records'));
 
 async function seedUsers() {
   const count = await User.countDocuments();
