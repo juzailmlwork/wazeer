@@ -12,6 +12,7 @@ import PLTab from './PL/PLTab.jsx';
 import IncomeTab from './Income/IncomeTab.jsx';
 import UsersTab from './Users/UsersTab.jsx';
 import SalaryTab from './Salary/SalaryTab.jsx';
+import StockTab from './Stock/StockTab.jsx';
 
 const TABS = [
   { id: 'buy', label: '🛒 Buy' },
@@ -25,6 +26,7 @@ const TABS = [
   { id: 'suppliers', label: '🏭 Suppliers' },
   { id: 'customers', label: '👥 Customers' },
   { id: 'salary', label: '💼 Salary' },
+  { id: 'stock', label: '📦 Stock' },
   { id: 'users', label: '👤 Users', superAdminOnly: true },
 ];
 
@@ -104,6 +106,7 @@ export default function Layout() {
         {activeTab === 'expenses' && <ExpensesTab />}
         {activeTab === 'income' && <IncomeTab />}
         {activeTab === 'salary' && <SalaryTab />}
+        {activeTab === 'stock' && <StockTab />}
         {activeTab === 'users' && isSuperAdmin && <UsersTab />}
         {activeTab === 'pl' && <PLTab />}
       </main>
