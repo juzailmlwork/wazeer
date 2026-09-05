@@ -7,7 +7,7 @@ export default defineConfig({
     port: 4200,
     allowedHosts: ['fwr.limecodelabs.com'],
     proxy: {
-      '/api': 'http://localhost:7200',
+      '/api': process.env.VITE_API_PROXY || 'http://localhost:7200',
     },
   },
 });
