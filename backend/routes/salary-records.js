@@ -42,7 +42,7 @@ router.get('/', auth, async (req, res) => {
 
 router.post('/', auth, async (req, res) => {
   try {
-    const { employeeId, employeeName, date, startTime, endTime, amount } = req.body;
+    const { employeeId, employeeName, date, startTime, endTime, amount, yard } = req.body;
     if (!TIME_RE.test(startTime || '') || !TIME_RE.test(endTime || '')) {
       return res.status(400).json({ message: 'Start and end time are required (HH:mm)' });
     }
@@ -57,6 +57,7 @@ router.post('/', auth, async (req, res) => {
       endTime,
       hours: hoursBetween(startTime, endTime),
       amount: Number(amount),
+      yard,
       createdBy: req.user.username,
     });
     await record.save();

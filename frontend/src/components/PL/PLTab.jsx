@@ -32,6 +32,9 @@ const YARDS = [
 // Records created before yards existed have no yard and count as hospital, as in the other tabs.
 const inYard = (record, yard) => !yard || (record.yard || 'hospital') === yard;
 
+// Salary dates are stored as UTC midnight of the day worked, so the ISO prefix is that day.
+const salaryDay = (r) => String(r.date).slice(0, 10);
+
 const PERIODS = [
   { id: 'today', label: 'Today' },
   { id: 'month', label: 'This Month' },
@@ -43,6 +46,7 @@ export default function PLTab() {
   const [sales, setSales] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [incomes, setIncomes] = useState([]);
+  const [salaries, setSalaries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('today');
   const [customFrom, setCustomFrom] = useState(thisMonthRange().from);
@@ -56,16 +60,18 @@ export default function PLTab() {
 
   const fetchData = async () => {
     try {
-      const [txRes, saleRes, expRes, incRes] = await Promise.all([
+      const [txRes, saleRes, expRes, incRes, salRes] = await Promise.all([
         api.get('/transactions'),
         api.get('/sales'),
         api.get('/expenses'),
         api.get('/incomes'),
+        api.get('/salary-records'),
       ]);
       setTransactions(txRes.data);
       setSales(saleRes.data);
       setExpenses(expRes.data);
       setIncomes(incRes.data);
+      setSalaries(salRes.data);
     } finally {
       setLoading(false);
     }
@@ -95,6 +101,13 @@ export default function PLTab() {
     [incomes, from, to, yard]
   );
 
+  const filteredSalaries = useMemo(
+    () => salaries
+      .filter((r) => inYard(r, yard) && inRange(salaryDay(r), from, to))
+      .sort((a, b) => salaryDay(a).localeCompare(salaryDay(b)) || a.employeeName.localeCompare(b.employeeName)),
+    [salaries, from, to, yard]
+  );
+
   const totalRevenue = useMemo(
     () => filteredSales.reduce((sum, s) => sum + s.grandTotal, 0),
     [filteredSales]
@@ -111,7 +124,11 @@ export default function PLTab() {
     () => filteredIncomes.reduce((sum, inc) => sum + inc.amount, 0),
     [filteredIncomes]
   );
-  const netPL = totalRevenue + totalIncome - totalPurchases - totalExpenses;
+  const totalSalaries = useMemo(
+    () => filteredSalaries.reduce((sum, r) => sum + r.amount, 0),
+    [filteredSalaries]
+  );
+  const netPL = totalRevenue + totalIncome - totalPurchases - totalExpenses - totalSalaries;
 
   const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 });
 
@@ -154,7 +171,7 @@ export default function PLTab() {
             </select>
             <button
               className="btn-ghost btn-sm"
-              onClick={() => exportPLPDF({ from, to, yardLabel: YARDS.find((y) => y.id === yard).label, filteredTransactions, filteredSales, filteredExpenses, totalRevenue, totalPurchases, totalExpenses, netPL })}
+              onClick={() => exportPLPDF({ from, to, yardLabel: YARDS.find((y) => y.id === yard).label, filteredTransactions, filteredSales, filteredExpenses, filteredIncomes, filteredSalaries, totalRevenue, totalIncome, totalPurchases, totalExpenses, totalSalaries, netPL })}
             >
               ↓ PDF
             </button>
@@ -163,11 +180,12 @@ export default function PLTab() {
       </div>
 
       {/* Summary cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 24 }}>
         <SummaryCard label="Sales Revenue" value={fmt(totalRevenue)} color="var(--primary-dark)" bg="var(--primary-light)" />
         <SummaryCard label="Other Income" value={fmt(totalIncome)} color="#0891b2" bg="#e0f2fe" />
         <SummaryCard label="Purchases Cost" value={fmt(totalPurchases)} color="#b45309" bg="#fef3c7" />
         <SummaryCard label="Expenses" value={fmt(totalExpenses)} color="#dc2626" bg="#fee2e2" />
+        <SummaryCard label="Salaries" value={fmt(totalSalaries)} color="#7c3aed" bg="#ede9fe" />
         <SummaryCard
           label="Net Profit / Loss"
           value={(netPL >= 0 ? '+' : '') + fmt(netPL)}
@@ -307,6 +325,42 @@ export default function PLTab() {
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
                       {fmt(e.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Section>
+
+        {/* Salaries */}
+        <Section title="Salaries" count={filteredSalaries.length} total={fmt(totalSalaries)} color="#7c3aed" expanded={expanded.salaries} onToggle={() => toggle('salaries')}>
+          {filteredSalaries.length === 0 ? (
+            <div className="empty-state">No salaries in this period.</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Employee</th>
+                  <th>Time</th>
+                  <th style={{ textAlign: 'right' }}>Hours</th>
+                  <th style={{ textAlign: 'right' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredSalaries.map((r) => (
+                  <tr key={r._id}>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 13, whiteSpace: 'nowrap' }}>
+                      {new Date(`${salaryDay(r)}T00:00:00`).toLocaleDateString()}
+                    </td>
+                    <td>{r.employeeName}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                      {r.startTime && r.endTime ? `${r.startTime} – ${r.endTime}` : '—'}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>{r.hours}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: '#7c3aed' }}>
+                      {fmt(r.amount)}
                     </td>
                   </tr>
                 ))}

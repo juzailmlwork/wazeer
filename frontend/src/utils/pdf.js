@@ -534,20 +534,28 @@ export function exportCustomerPDF({ customer, itemRows, monthGrandTotal, monthGr
   doc.save(`customer-${customer.name.toLowerCase().replace(/\s+/g, '-')}-${MONTH_NAMES[selectedMonth].toLowerCase()}-${selectedYear}.pdf`);
 }
 
-export function exportPLPDF({ from, to, yardLabel, filteredTransactions, filteredSales, filteredExpenses, totalRevenue, totalPurchases, totalExpenses, netPL }) {
+export function exportPLPDF({
+  from, to, yardLabel,
+  filteredTransactions, filteredSales, filteredExpenses, filteredIncomes, filteredSalaries,
+  totalRevenue, totalIncome, totalPurchases, totalExpenses, totalSalaries, netPL,
+}) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 });
+  const fmtDate = (d) => new Date(d).toLocaleDateString();
   const isProfit = netPL >= 0;
 
   addHeader(doc, 'Profit & Loss Report', `${from}  to  ${to}  ·  ${yardLabel}`);
 
-  // Summary stat boxes
   let y = addStatRow(doc, [
     { label: 'Sales Revenue', value: fmt(totalRevenue) },
+    { label: 'Other Income', value: fmt(totalIncome) },
     { label: 'Purchases Cost', value: fmt(totalPurchases) },
-    { label: 'Expenses', value: fmt(totalExpenses) },
-    { label: isProfit ? 'Net Profit' : 'Net Loss', value: (isProfit ? '+' : '') + fmt(netPL) },
   ], 40);
+  y = addStatRow(doc, [
+    { label: 'Expenses', value: fmt(totalExpenses) },
+    { label: 'Salaries', value: fmt(totalSalaries) },
+    { label: isProfit ? 'Net Profit' : 'Net Loss', value: (isProfit ? '+' : '') + fmt(netPL) },
+  ], y);
 
   // Net P/L highlight box
   doc.setFillColor(...(isProfit ? [220, 252, 231] : [254, 226, 226]));
@@ -558,83 +566,60 @@ export function exportPLPDF({ from, to, yardLabel, filteredTransactions, filtere
   doc.text(`${isProfit ? 'NET PROFIT' : 'NET LOSS'}: ${(isProfit ? '+' : '') + fmt(netPL)}`, 105, y + 9, { align: 'center' });
   y += 20;
 
-  // Sales table
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...BRAND_COLOR);
-  doc.text(`Sales  (${filteredSales.length} records)`, 14, y + 5);
-  y += 8;
+  const section = ({ title, color, footFill, head, rows, total }) => {
+    if (y > 260) { doc.addPage(); y = 20; }
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...color);
+    doc.text(`${title}  (${rows.length} records)`, 14, y + 5);
+    const last = head.length - 1;
+    autoTable(doc, {
+      startY: y + 8,
+      head: [head],
+      body: rows,
+      foot: [[...Array(last - 1).fill(''), 'Total', fmt(total)]],
+      headStyles: { fillColor: color, fontSize: 8.5, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 8 },
+      footStyles: { fillColor: footFill, textColor: color, fontStyle: 'bold', fontSize: 9 },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: { [last]: { halign: 'right', fontStyle: 'bold' } },
+      didParseCell: (data) => { if (data.column.index === last) data.cell.styles.halign = 'right'; },
+      showFoot: 'lastPage',
+      margin: { left: 14, right: 14 },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+  };
 
-  autoTable(doc, {
-    startY: y,
-    head: [['Date', 'Customer', 'Items', 'Amount']],
-    body: filteredSales.map((s) => [
-      new Date(s.createdAt).toLocaleDateString(),
-      s.customerName || '—',
-      s.items.map((i) => i.materialName).join(', '),
-      fmt(s.grandTotal),
-    ]),
-    foot: [['', '', 'Total', fmt(totalRevenue)]],
-    headStyles: { fillColor: BRAND_COLOR, fontSize: 8.5, fontStyle: 'bold' },
-    bodyStyles: { fontSize: 8 },
-    footStyles: { fillColor: [220, 252, 231], textColor: BRAND_COLOR, fontStyle: 'bold', fontSize: 9 },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
-    margin: { left: 14, right: 14 },
+  section({
+    title: 'Sales', color: BRAND_COLOR, footFill: [220, 252, 231], total: totalRevenue,
+    head: ['Date', 'Customer', 'Items', 'Amount'],
+    rows: filteredSales.map((s) => [fmtDate(s.createdAt), s.customerName || '—', s.items.map((i) => i.materialName).join(', '), fmt(s.grandTotal)]),
   });
-
-  y = doc.lastAutoTable.finalY + 10;
-
-  // Purchases table
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(180, 83, 9);
-  doc.text(`Purchases  (${filteredTransactions.length} records)`, 14, y + 5);
-  y += 8;
-
-  autoTable(doc, {
-    startY: y,
-    head: [['Date', 'Supplier', 'Items', 'Amount']],
-    body: filteredTransactions.map((tx) => [
-      new Date(tx.createdAt).toLocaleDateString(),
-      tx.supplierName || '—',
-      tx.items.map((i) => i.materialName).join(', '),
-      fmt(tx.grandTotal),
-    ]),
-    foot: [['', '', 'Total', fmt(totalPurchases)]],
-    headStyles: { fillColor: [180, 83, 9], fontSize: 8.5, fontStyle: 'bold' },
-    bodyStyles: { fontSize: 8 },
-    footStyles: { fillColor: [254, 243, 199], textColor: [180, 83, 9], fontStyle: 'bold', fontSize: 9 },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
-    margin: { left: 14, right: 14 },
+  section({
+    title: 'Other Income', color: [8, 145, 178], footFill: [224, 242, 254], total: totalIncome,
+    head: ['Date', 'Description', 'Tags', 'Amount'],
+    rows: filteredIncomes.map((inc) => [fmtDate(inc.createdAt), inc.description || '—', inc.tags?.map((t) => t.name).join(', ') || '—', fmt(inc.amount)]),
   });
-
-  y = doc.lastAutoTable.finalY + 10;
-
-  // Expenses table
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(220, 38, 38);
-  doc.text(`Expenses  (${filteredExpenses.length} records)`, 14, y + 5);
-  y += 8;
-
-  autoTable(doc, {
-    startY: y,
-    head: [['Date', 'Description', 'Tags', 'Amount']],
-    body: filteredExpenses.map((e) => [
-      new Date(e.createdAt).toLocaleDateString(),
-      e.description || '—',
-      e.tags?.map((t) => t.name).join(', ') || '—',
-      fmt(e.amount),
+  section({
+    title: 'Purchases', color: [180, 83, 9], footFill: [254, 243, 199], total: totalPurchases,
+    head: ['Date', 'Supplier', 'Items', 'Amount'],
+    rows: filteredTransactions.map((tx) => [fmtDate(tx.createdAt), tx.supplierName || '—', tx.items.map((i) => i.materialName).join(', '), fmt(tx.grandTotal)]),
+  });
+  section({
+    title: 'Expenses', color: [220, 38, 38], footFill: [254, 226, 226], total: totalExpenses,
+    head: ['Date', 'Description', 'Tags', 'Amount'],
+    rows: filteredExpenses.map((e) => [fmtDate(e.createdAt), e.description || '—', e.tags?.map((t) => t.name).join(', ') || '—', fmt(e.amount)]),
+  });
+  section({
+    title: 'Salaries', color: [124, 58, 237], footFill: [237, 233, 254], total: totalSalaries,
+    head: ['Date', 'Employee', 'Time', 'Hours', 'Amount'],
+    rows: filteredSalaries.map((r) => [
+      fmtSalaryDay(salaryDayKey(r), { year: 'numeric', month: 'numeric', day: 'numeric' }),
+      r.employeeName,
+      r.startTime && r.endTime ? `${r.startTime} – ${r.endTime}` : '—',
+      r.hours,
+      fmt(r.amount),
     ]),
-    foot: [['', '', 'Total', fmt(totalExpenses)]],
-    headStyles: { fillColor: [220, 38, 38], fontSize: 8.5, fontStyle: 'bold' },
-    bodyStyles: { fontSize: 8 },
-    footStyles: { fillColor: [254, 226, 226], textColor: [220, 38, 38], fontStyle: 'bold', fontSize: 9 },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
-    margin: { left: 14, right: 14 },
   });
 
   const yardSuffix = yardLabel === 'All Yards' ? '' : `-${yardLabel.toLowerCase()}`;

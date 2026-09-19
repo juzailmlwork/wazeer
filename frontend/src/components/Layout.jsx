@@ -14,6 +14,7 @@ import UsersTab from './Users/UsersTab.jsx';
 import SalaryTab from './Salary/SalaryTab.jsx';
 import StockTab from './Stock/StockTab.jsx';
 import FilesTab from './Files/FilesTab.jsx';
+import SettingsTab from './Settings/SettingsTab.jsx';
 
 const TABS = [
   { id: 'buy', label: '🛒 Buy' },
@@ -30,6 +31,7 @@ const TABS = [
   { id: 'stock', label: '📦 Stock' },
   { id: 'files', label: '🗂️ Files' },
   { id: 'users', label: '👤 Users', superAdminOnly: true },
+  { id: 'settings', label: '⚙️ Settings', superAdminOnly: true },
 ];
 
 export default function Layout() {
@@ -111,6 +113,7 @@ export default function Layout() {
         {activeTab === 'stock' && <StockTab />}
         {activeTab === 'files' && <FilesTab />}
         {activeTab === 'users' && isSuperAdmin && <UsersTab />}
+        {activeTab === 'settings' && isSuperAdmin && <SettingsTab />}
         {activeTab === 'pl' && <PLTab />}
       </main>
     </div>

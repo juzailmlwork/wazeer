@@ -42,7 +42,7 @@ export default function SalaryTab() {
   const [month, setMonth] = useState(now.getMonth());
   const [year, setYear] = useState(now.getFullYear());
 
-  const emptyForm = () => ({ date: todayStr(), startTime: '', endTime: '', amount: '' });
+  const emptyForm = () => ({ date: todayStr(), startTime: '', endTime: '', amount: '', yard: 'hospital' });
   const [form, setForm] = useState(emptyForm);
   const formHours = hoursBetween(form.startTime, form.endTime);
   const [recSaving, setRecSaving] = useState(false);
@@ -127,6 +127,7 @@ export default function SalaryTab() {
         startTime: form.startTime,
         endTime: form.endTime,
         amount: form.amount,
+        yard: form.yard,
       });
       const recDate = new Date(data.date);
       if (recDate.getFullYear() === year && recDate.getMonth() === month) {
@@ -381,6 +382,28 @@ export default function SalaryTab() {
                     required
                   />
                 </div>
+                <div className="form-group" style={{ marginBottom: 0, flex: '1 1 150px' }}>
+                  <label>Yard</label>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {['hospital', 'nayawala'].map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setForm({ ...form, yard: v })}
+                        style={{
+                          flex: 1, padding: '8px 0', borderRadius: 6, fontSize: 13,
+                          fontWeight: form.yard === v ? 600 : 400,
+                          background: form.yard === v ? 'var(--primary)' : 'transparent',
+                          color: form.yard === v ? 'white' : 'var(--text-muted)',
+                          border: form.yard === v ? '1px solid var(--primary)' : '1px solid var(--border)',
+                          cursor: 'pointer', textTransform: 'capitalize',
+                        }}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="form-group" style={{ marginBottom: 0, flex: '1 1 110px' }}>
                   <label>Start</label>
                   <input
@@ -453,6 +476,7 @@ export default function SalaryTab() {
                 <thead>
                   <tr>
                     <th>Date</th>
+                    <th>Yard</th>
                     <th>Start</th>
                     <th>End</th>
                     <th style={{ textAlign: 'right' }}>Hours</th>
@@ -466,6 +490,11 @@ export default function SalaryTab() {
                     <tr key={r._id}>
                       <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
                         {new Date(r.date).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                      </td>
+                      <td>
+                        <span className="badge" style={{ background: (r.yard || 'hospital') === 'hospital' ? '#dbeafe' : '#dcfce7', color: (r.yard || 'hospital') === 'hospital' ? '#1d4ed8' : '#15803d', textTransform: 'capitalize' }}>
+                          {r.yard || 'hospital'}
+                        </span>
                       </td>
                       <td>{r.startTime || '—'}</td>
                       <td>{r.endTime || '—'}</td>
@@ -484,7 +513,7 @@ export default function SalaryTab() {
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#f8fafc' }}>
-                    <td colSpan={3} style={{ fontWeight: 600, padding: '10px 16px' }}>Total</td>
+                    <td colSpan={4} style={{ fontWeight: 600, padding: '10px 16px' }}>Total</td>
                     <td style={{ textAlign: 'right', fontWeight: 700, padding: '10px 16px' }}>
                       {fmtHours(totalHours)}
                     </td>

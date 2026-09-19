@@ -12,6 +12,7 @@ const salaryRecordSchema = new mongoose.Schema(
     endTime: { type: String, match: TIME_RE },
     hours: { type: Number, required: true, min: 0 },
     amount: { type: Number, required: true, min: 0 },
+    yard: { type: String, enum: ['hospital', 'nayawala'], default: 'hospital' },
     createdBy: { type: String },
   },
   { timestamps: true }

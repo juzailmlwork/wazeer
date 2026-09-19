@@ -8,7 +8,8 @@ const multer = require('multer');
 const File = require('../models/File');
 const auth = require('../middleware/auth');
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads');
+const { UPLOAD_DIR } = require('../config/paths');
+
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // SVG is deliberately excluded: it can carry script and we serve files inline.
