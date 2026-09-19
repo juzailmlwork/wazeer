@@ -240,6 +240,147 @@ export async function exportSalaryPDF({ employee, month, year, apiGet }) {
   }
 }
 
+// Salary dates are stored as UTC midnight of the chosen day, so the ISO prefix is the day itself.
+const salaryDayKey = (r) => String(r.date).slice(0, 10);
+const fmtSalaryDay = (key, opts = { weekday: 'short', day: 'numeric', month: 'short' }) =>
+  new Date(`${key}T00:00:00`).toLocaleDateString('en-US', opts);
+const bySalaryDayThenStart = (a, b) =>
+  salaryDayKey(a).localeCompare(salaryDayKey(b)) || (a.startTime || '').localeCompare(b.startTime || '');
+
+const SALARY_TABLE_STYLE = {
+  headStyles: { fillColor: BRAND_COLOR, fontSize: 8.5, fontStyle: 'bold' },
+  bodyStyles: { fontSize: 8 },
+  footStyles: { fillColor: [240, 253, 244], textColor: BRAND_COLOR, fontStyle: 'bold', fontSize: 8.5 },
+  alternateRowStyles: { fillColor: [248, 250, 252] },
+  margin: { left: 14, right: 14 },
+  // Default repeats the totals row on every page, which reads as a wrong subtotal mid-table.
+  showFoot: 'lastPage',
+};
+
+// columnStyles only reach body cells; this keeps header and total cells in line with the numbers.
+const alignRight = (cols) => ({
+  columnStyles: Object.fromEntries(cols.map((c, i) => [c, { halign: 'right', ...(i === cols.length - 1 && { fontStyle: 'bold' }) }])),
+  didParseCell: (data) => { if (cols.includes(data.column.index)) data.cell.styles.halign = 'right'; },
+});
+
+function salaryTotals(records) {
+  return {
+    hours: records.reduce((s, r) => s + r.hours, 0),
+    amount: records.reduce((s, r) => s + r.amount, 0),
+  };
+}
+
+function addSectionTitle(doc, text, y) {
+  if (y > 260) { doc.addPage(); y = 20; }
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...BRAND_COLOR);
+  doc.text(text, 14, y + 5);
+  return y + 8;
+}
+
+// One day, every employee who worked it.
+export function exportSalaryDailyPDF({ date, records }) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 });
+  const fmtH = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+
+  const sorted = [...records].sort((a, b) =>
+    a.employeeName.localeCompare(b.employeeName) || (a.startTime || '').localeCompare(b.startTime || ''));
+  const totals = salaryTotals(sorted);
+
+  addHeader(doc, 'Daily Salary Report', fmtSalaryDay(date, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
+  const y = addStatRow(doc, [
+    { label: 'Employees', value: new Set(sorted.map((r) => r.employeeName)).size },
+    { label: 'Total Hours', value: fmtH(totals.hours) },
+    { label: 'Total Paid', value: fmt(totals.amount) },
+  ], 40);
+
+  autoTable(doc, {
+    ...SALARY_TABLE_STYLE,
+    startY: y,
+    head: [['Employee', 'Start', 'End', 'Hours', 'Amount']],
+    body: sorted.map((r) => [r.employeeName, r.startTime || '—', r.endTime || '—', fmtH(r.hours), fmt(r.amount)]),
+    foot: [['Total', '', '', fmtH(totals.hours), fmt(totals.amount)]],
+    ...alignRight([3, 4]),
+  });
+
+  doc.save(`salary-daily-${date}.pdf`);
+}
+
+// One month, day by day. With an employee: just their days. Without: per-day totals across
+// everyone, followed by a day-by-day section for each employee.
+export function exportSalaryMonthDailyPDF({ month, year, records, employee }) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 });
+  const fmtH = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+  const monthLabel = `${MONTH_NAMES[month]} ${year}`;
+  const sorted = [...records].sort(bySalaryDayThenStart);
+  const totals = salaryTotals(sorted);
+  const days = new Set(sorted.map(salaryDayKey));
+
+  const entryTable = (rows, startY) => {
+    const t = salaryTotals(rows);
+    autoTable(doc, {
+      ...SALARY_TABLE_STYLE,
+      startY,
+      head: [['Date', 'Start', 'End', 'Hours', 'Amount']],
+      body: rows.map((r) => [fmtSalaryDay(salaryDayKey(r)), r.startTime || '—', r.endTime || '—', fmtH(r.hours), fmt(r.amount)]),
+      foot: [['Total', '', '', fmtH(t.hours), fmt(t.amount)]],
+      ...alignRight([3, 4]),
+    });
+    return doc.lastAutoTable.finalY + 10;
+  };
+
+  if (employee) {
+    addHeader(doc, `Salary Report — ${employee.name}`, `${monthLabel}  ·  day by day`);
+    const y = addStatRow(doc, [
+      { label: 'Days Worked', value: days.size },
+      { label: 'Total Hours', value: fmtH(totals.hours) },
+      { label: 'Total Paid', value: fmt(totals.amount) },
+    ], 40);
+    entryTable(sorted, y);
+    doc.save(`salary-${employee.name.toLowerCase().replace(/\s+/g, '-')}-${year}-${String(month + 1).padStart(2, '0')}-daily.pdf`);
+    return;
+  }
+
+  addHeader(doc, 'Salary Report — All Employees', `${monthLabel}  ·  day by day`);
+  const byEmp = {};
+  sorted.forEach((r) => { (byEmp[r.employeeName] ||= []).push(r); });
+  let y = addStatRow(doc, [
+    { label: 'Employees', value: Object.keys(byEmp).length },
+    { label: 'Days', value: days.size },
+    { label: 'Total Hours', value: fmtH(totals.hours) },
+    { label: 'Total Paid', value: fmt(totals.amount) },
+  ], 40);
+
+  const byDay = {};
+  sorted.forEach((r) => {
+    const k = salaryDayKey(r);
+    byDay[k] ||= { employees: new Set(), hours: 0, amount: 0 };
+    byDay[k].employees.add(r.employeeName);
+    byDay[k].hours += r.hours;
+    byDay[k].amount += r.amount;
+  });
+  y = addSectionTitle(doc, 'Daily Totals — All Employees', y);
+  autoTable(doc, {
+    ...SALARY_TABLE_STYLE,
+    startY: y,
+    head: [['Date', 'Employees', 'Hours', 'Amount']],
+    body: Object.keys(byDay).sort().map((k) => [fmtSalaryDay(k), byDay[k].employees.size, fmtH(byDay[k].hours), fmt(byDay[k].amount)]),
+    foot: [['Total', '', fmtH(totals.hours), fmt(totals.amount)]],
+    ...alignRight([1, 2, 3]),
+  });
+  y = doc.lastAutoTable.finalY + 12;
+
+  Object.keys(byEmp).sort().forEach((name) => {
+    y = addSectionTitle(doc, name, y);
+    y = entryTable(byEmp[name], y);
+  });
+
+  doc.save(`salary-all-employees-${year}-${String(month + 1).padStart(2, '0')}-daily.pdf`);
+}
+
 const MONTH_NAMES_PDF = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 export function exportIncomePDF({ filtered, totalFiltered, period, selectedTagObj }) {
@@ -393,12 +534,12 @@ export function exportCustomerPDF({ customer, itemRows, monthGrandTotal, monthGr
   doc.save(`customer-${customer.name.toLowerCase().replace(/\s+/g, '-')}-${MONTH_NAMES[selectedMonth].toLowerCase()}-${selectedYear}.pdf`);
 }
 
-export function exportPLPDF({ from, to, filteredTransactions, filteredSales, filteredExpenses, totalRevenue, totalPurchases, totalExpenses, netPL }) {
+export function exportPLPDF({ from, to, yardLabel, filteredTransactions, filteredSales, filteredExpenses, totalRevenue, totalPurchases, totalExpenses, netPL }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 });
   const isProfit = netPL >= 0;
 
-  addHeader(doc, 'Profit & Loss Report', `${from}  to  ${to}`);
+  addHeader(doc, 'Profit & Loss Report', `${from}  to  ${to}  ·  ${yardLabel}`);
 
   // Summary stat boxes
   let y = addStatRow(doc, [
@@ -496,5 +637,6 @@ export function exportPLPDF({ from, to, filteredTransactions, filteredSales, fil
     margin: { left: 14, right: 14 },
   });
 
-  doc.save(`pl-report-${from}-to-${to}.pdf`);
+  const yardSuffix = yardLabel === 'All Yards' ? '' : `-${yardLabel.toLowerCase()}`;
+  doc.save(`pl-report-${from}-to-${to}${yardSuffix}.pdf`);
 }

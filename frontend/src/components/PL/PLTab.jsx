@@ -23,6 +23,15 @@ function inRange(dateStr, from, to) {
   return dateStr >= from && dateStr <= to;
 }
 
+const YARDS = [
+  { id: '', label: 'All Yards' },
+  { id: 'hospital', label: 'Hospital' },
+  { id: 'nayawala', label: 'Nayawala' },
+];
+
+// Records created before yards existed have no yard and count as hospital, as in the other tabs.
+const inYard = (record, yard) => !yard || (record.yard || 'hospital') === yard;
+
 const PERIODS = [
   { id: 'today', label: 'Today' },
   { id: 'month', label: 'This Month' },
@@ -38,6 +47,7 @@ export default function PLTab() {
   const [period, setPeriod] = useState('today');
   const [customFrom, setCustomFrom] = useState(thisMonthRange().from);
   const [customTo, setCustomTo] = useState(thisMonthRange().to);
+  const [yard, setYard] = useState('');
   const [expanded, setExpanded] = useState({});
 
   const toggle = (id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -69,20 +79,20 @@ export default function PLTab() {
   }, [period, customFrom, customTo]);
 
   const filteredTransactions = useMemo(
-    () => transactions.filter((tx) => inRange(localDate(tx.createdAt), from, to)),
-    [transactions, from, to]
+    () => transactions.filter((tx) => inYard(tx, yard) && inRange(localDate(tx.createdAt), from, to)),
+    [transactions, from, to, yard]
   );
   const filteredSales = useMemo(
-    () => sales.filter((s) => inRange(localDate(s.createdAt), from, to)),
-    [sales, from, to]
+    () => sales.filter((s) => inYard(s, yard) && inRange(localDate(s.createdAt), from, to)),
+    [sales, from, to, yard]
   );
   const filteredExpenses = useMemo(
-    () => expenses.filter((e) => inRange(localDate(e.createdAt), from, to)),
-    [expenses, from, to]
+    () => expenses.filter((e) => inYard(e, yard) && inRange(localDate(e.createdAt), from, to)),
+    [expenses, from, to, yard]
   );
   const filteredIncomes = useMemo(
-    () => incomes.filter((inc) => inRange(localDate(inc.createdAt), from, to)),
-    [incomes, from, to]
+    () => incomes.filter((inc) => inYard(inc, yard) && inRange(localDate(inc.createdAt), from, to)),
+    [incomes, from, to, yard]
   );
 
   const totalRevenue = useMemo(
@@ -138,10 +148,13 @@ export default function PLTab() {
               <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} style={{ width: 150 }} />
             </div>
           )}
-          <div style={{ marginLeft: 'auto' }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <select value={yard} onChange={(e) => setYard(e.target.value)} style={{ width: 130 }}>
+              {YARDS.map((y) => <option key={y.id} value={y.id}>{y.label}</option>)}
+            </select>
             <button
               className="btn-ghost btn-sm"
-              onClick={() => exportPLPDF({ from, to, filteredTransactions, filteredSales, filteredExpenses, totalRevenue, totalPurchases, totalExpenses, netPL })}
+              onClick={() => exportPLPDF({ from, to, yardLabel: YARDS.find((y) => y.id === yard).label, filteredTransactions, filteredSales, filteredExpenses, totalRevenue, totalPurchases, totalExpenses, netPL })}
             >
               ↓ PDF
             </button>

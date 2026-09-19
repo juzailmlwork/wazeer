@@ -1,13 +1,24 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { exportSalaryPDF } from '../../utils/pdf.js';
+import { exportSalaryPDF, exportSalaryDailyPDF, exportSalaryMonthDailyPDF } from '../../utils/pdf.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 const todayStr = () => {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
+
+// Mirrors the backend: an end time before the start time means the shift ran past midnight.
+const hoursBetween = (start, end) => {
+  if (!start || !end || start === end) return null;
+  const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  let diff = toMin(end) - toMin(start);
+  if (diff < 0) diff += 24 * 60;
+  return Math.round((diff / 60) * 100) / 100;
+};
+
+const fmtHours = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
@@ -31,12 +42,15 @@ export default function SalaryTab() {
   const [month, setMonth] = useState(now.getMonth());
   const [year, setYear] = useState(now.getFullYear());
 
-  const [form, setForm] = useState({ date: todayStr(), hours: '', amount: '' });
+  const emptyForm = () => ({ date: todayStr(), startTime: '', endTime: '', amount: '' });
+  const [form, setForm] = useState(emptyForm);
+  const formHours = hoursBetween(form.startTime, form.endTime);
   const [recSaving, setRecSaving] = useState(false);
   const [recError, setRecError] = useState('');
 
   const [pdfMenuOpen, setPdfMenuOpen] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [reportDate, setReportDate] = useState(todayStr());
   const pdfMenuRef = useRef(null);
 
   useEffect(() => {
@@ -110,14 +124,15 @@ export default function SalaryTab() {
         employeeId: selectedEmployee._id,
         employeeName: selectedEmployee.name,
         date: form.date,
-        hours: form.hours,
+        startTime: form.startTime,
+        endTime: form.endTime,
         amount: form.amount,
       });
       const recDate = new Date(data.date);
       if (recDate.getFullYear() === year && recDate.getMonth() === month) {
         setRecords((prev) => [data, ...prev].sort((a, b) => new Date(b.date) - new Date(a.date)));
       }
-      setForm({ date: todayStr(), hours: '', amount: '' });
+      setForm(emptyForm());
     } catch (err) {
       setRecError(err.response?.data?.message || 'Failed to add record');
     } finally {
@@ -135,22 +150,38 @@ export default function SalaryTab() {
     }
   };
 
-  const handleDownloadPDF = async (allEmployees) => {
+  const runPDF = async (generate) => {
     setPdfMenuOpen(false);
     setPdfLoading(true);
     try {
-      await exportSalaryPDF({
-        employee: allEmployees ? null : selectedEmployee,
-        month,
-        year,
-        apiGet: api.get,
-      });
+      await generate();
     } catch (err) {
-      alert('Failed to generate PDF');
+      alert(err.message || 'Failed to generate PDF');
     } finally {
       setPdfLoading(false);
     }
   };
+
+  const handleSummaryPDF = (allEmployees) => runPDF(() => exportSalaryPDF({
+    employee: allEmployees ? null : selectedEmployee,
+    month,
+    year,
+    apiGet: api.get,
+  }));
+
+  const handleDailyPDF = () => runPDF(async () => {
+    const { data } = await api.get('/salary-records', { params: { date: reportDate } });
+    if (data.length === 0) throw new Error(`No salary entries on ${reportDate}`);
+    exportSalaryDailyPDF({ date: reportDate, records: data });
+  });
+
+  const handleMonthDailyPDF = (allEmployees) => runPDF(async () => {
+    const employee = allEmployees ? null : selectedEmployee;
+    const params = { month, year, ...(employee && { employee: employee._id }) };
+    const { data } = await api.get('/salary-records', { params });
+    if (data.length === 0) throw new Error(`No salary entries in ${MONTH_NAMES[month]} ${year}`);
+    exportSalaryMonthDailyPDF({ month, year, records: data, employee });
+  });
 
   const totalHours = useMemo(() => records.reduce((s, r) => s + r.hours, 0), [records]);
   const totalAmount = useMemo(() => records.reduce((s, r) => s + r.amount, 0), [records]);
@@ -251,26 +282,47 @@ export default function SalaryTab() {
               <div style={{
                 position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 200,
                 background: 'white', border: '1px solid var(--border)', borderRadius: 6,
-                boxShadow: 'var(--shadow)', minWidth: 180,
+                boxShadow: 'var(--shadow-md)', width: 300, padding: 14,
+                display: 'grid', gap: 14,
               }}>
-                {selectedEmployee && (
-                  <div
-                    onMouseDown={() => handleDownloadPDF(false)}
-                    style={{ padding: '10px 16px', cursor: 'pointer', fontSize: 14, borderBottom: '1px solid var(--border)' }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--primary-light)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                  >
-                    {selectedEmployee.name}
+                <PdfSection title="Daily report — all employees">
+                  <input type="date" value={reportDate} max={todayStr()} onChange={(e) => setReportDate(e.target.value)} />
+                  <button className="btn-primary btn-sm" onClick={handleDailyPDF}>Download</button>
+                </PdfSection>
+
+                <PdfSection title="Month, day by day">
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
+                      {MONTH_NAMES.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                    </select>
+                    <select value={year} onChange={(e) => setYear(Number(e.target.value))} style={{ width: 90 }}>
+                      {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+                    </select>
                   </div>
-                )}
-                <div
-                  onMouseDown={() => handleDownloadPDF(true)}
-                  style={{ padding: '10px 16px', cursor: 'pointer', fontSize: 14 }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--primary-light)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                >
-                  All Employees
-                </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {selectedEmployee && (
+                      <button className="btn-primary btn-sm" style={{ flex: 1 }} onClick={() => handleMonthDailyPDF(false)}>
+                        {selectedEmployee.name}
+                      </button>
+                    )}
+                    <button className="btn-primary btn-sm" style={{ flex: 1 }} onClick={() => handleMonthDailyPDF(true)}>
+                      All Employees
+                    </button>
+                  </div>
+                </PdfSection>
+
+                <PdfSection title="All-time monthly summary">
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {selectedEmployee && (
+                      <button className="btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => handleSummaryPDF(false)}>
+                        {selectedEmployee.name}
+                      </button>
+                    )}
+                    <button className="btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => handleSummaryPDF(true)}>
+                      All Employees
+                    </button>
+                  </div>
+                </PdfSection>
               </div>
             )}
           </div>
@@ -300,7 +352,7 @@ export default function SalaryTab() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 16 }}>
             <div className="card" style={{ padding: '16px 20px' }}>
               <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--primary-dark)' }}>
-                {totalHours.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                {fmtHours(totalHours)}
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Total Hours</div>
             </div>
@@ -330,15 +382,32 @@ export default function SalaryTab() {
                   />
                 </div>
                 <div className="form-group" style={{ marginBottom: 0, flex: '1 1 110px' }}>
+                  <label>Start</label>
+                  <input
+                    type="time"
+                    value={form.startTime}
+                    onChange={(e) => setForm({ ...form, startTime: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0, flex: '1 1 110px' }}>
+                  <label>End</label>
+                  <input
+                    type="time"
+                    value={form.endTime}
+                    onChange={(e) => setForm({ ...form, endTime: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0, flex: '0 1 90px' }}>
                   <label>Hours</label>
                   <input
-                    type="number"
-                    placeholder="0.0"
-                    min="0"
-                    step="0.5"
-                    value={form.hours}
-                    onChange={(e) => setForm({ ...form, hours: e.target.value })}
-                    required
+                    type="text"
+                    value={formHours === null ? '—' : fmtHours(formHours)}
+                    readOnly
+                    tabIndex={-1}
+                    title={form.endTime && form.endTime < form.startTime ? 'Overnight shift' : undefined}
+                    style={{ background: 'var(--bg)', fontWeight: 600, textAlign: 'right' }}
                   />
                 </div>
                 <div className="form-group" style={{ marginBottom: 0, flex: '1 1 130px' }}>
@@ -353,10 +422,15 @@ export default function SalaryTab() {
                     required
                   />
                 </div>
-                <button type="submit" className="btn-primary" style={{ whiteSpace: 'nowrap', padding: '8px 20px' }} disabled={recSaving}>
+                <button type="submit" className="btn-primary" style={{ whiteSpace: 'nowrap', padding: '8px 20px' }} disabled={recSaving || formHours === null}>
                   {recSaving ? 'Saving...' : 'Add Entry'}
                 </button>
               </div>
+              {form.startTime && form.endTime && form.endTime < form.startTime && (
+                <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: 'var(--text-muted)' }}>
+                  End is before start — counted as an overnight shift.
+                </p>
+              )}
               {recError && <p className="error-msg" style={{ marginTop: 8, marginBottom: 0 }}>{recError}</p>}
             </form>
           </div>
@@ -379,6 +453,8 @@ export default function SalaryTab() {
                 <thead>
                   <tr>
                     <th>Date</th>
+                    <th>Start</th>
+                    <th>End</th>
                     <th style={{ textAlign: 'right' }}>Hours</th>
                     <th style={{ textAlign: 'right' }}>Amount</th>
                     <th>Added By</th>
@@ -391,7 +467,9 @@ export default function SalaryTab() {
                       <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
                         {new Date(r.date).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
                       </td>
-                      <td style={{ textAlign: 'right', fontWeight: 500 }}>{r.hours}</td>
+                      <td>{r.startTime || '—'}</td>
+                      <td>{r.endTime || '—'}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 500 }}>{fmtHours(r.hours)}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-dark)' }}>
                         {Number(r.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </td>
@@ -406,9 +484,9 @@ export default function SalaryTab() {
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#f8fafc' }}>
-                    <td style={{ fontWeight: 600, padding: '10px 16px' }}>Total</td>
+                    <td colSpan={3} style={{ fontWeight: 600, padding: '10px 16px' }}>Total</td>
                     <td style={{ textAlign: 'right', fontWeight: 700, padding: '10px 16px' }}>
-                      {totalHours.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                      {fmtHours(totalHours)}
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-dark)', padding: '10px 16px' }}>
                       {totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -421,6 +499,17 @@ export default function SalaryTab() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function PdfSection({ title, children }) {
+  return (
+    <div style={{ display: 'grid', gap: 6 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        {title}
+      </div>
+      {children}
     </div>
   );
 }
