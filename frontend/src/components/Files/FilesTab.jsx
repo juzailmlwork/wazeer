@@ -1,388 +1,326 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
-const TAG_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#8b5cf6', '#06b6d4'];
-const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
+const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,application/pdf';
+const ROOT = 'root';
+const isImage = (f) => f.mimeType.startsWith('image/');
 
 const fmtSize = (bytes) =>
   bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+const errMsg = (err, fallback) => err.response?.data?.message || fallback;
 
-// Images sit behind auth, so <img src> can't load them directly — fetch with the token
-// and hand the browser a blob URL. Lazy so a long grid doesn't pull every image at once.
-function AuthImage({ fileId, alt, style }) {
+// Files sit behind auth, so a plain src can't load them — fetch with the token and hand the
+// browser a blob URL. Lazy, so a long grid doesn't pull every file at once.
+function useAuthBlob(fileId, enabled = true) {
   const ref = useRef(null);
   const [visible, setVisible] = useState(false);
-  const [src, setSrc] = useState(null);
+  const [url, setUrl] = useState(null);
 
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) { setVisible(true); obs.disconnect(); }
-    }, { rootMargin: '200px' });
+    if (!el || !enabled) return;
+    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } }, { rootMargin: '200px' });
     obs.observe(el);
     return () => obs.disconnect();
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
-    if (!visible) return;
-    let url;
+    if (!visible || !enabled) return;
+    let objectUrl;
     let cancelled = false;
     api.get(`/files/${fileId}/content`, { responseType: 'blob' })
-      .then(({ data }) => {
-        if (cancelled) return;
-        url = URL.createObjectURL(data);
-        setSrc(url);
-      })
+      .then(({ data }) => { if (!cancelled) { objectUrl = URL.createObjectURL(data); setUrl(objectUrl); } })
       .catch(() => {});
-    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
-  }, [visible, fileId]);
+    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [visible, fileId, enabled]);
 
+  return [ref, url];
+}
+
+function PdfGlyph({ size = 40 }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, color: '#dc2626' }}>
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+      </svg>
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em' }}>PDF</span>
+    </div>
+  );
+}
+
+function Thumb({ file, style }) {
+  const [ref, url] = useAuthBlob(file._id, isImage(file));
   return (
     <div ref={ref} style={{ background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', ...style }}>
-      {src
-        ? <img src={src} alt={alt} style={{ width: '100%', height: '100%', objectFit: style?.objectFit || 'cover', display: 'block' }} />
+      {!isImage(file) ? <PdfGlyph />
+        : url ? <img src={url} alt={file.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Loading…</span>}
     </div>
   );
 }
 
-function TagChip({ tag, onRemove }) {
+function Preview({ file }) {
+  const [ref, url] = useAuthBlob(file._id);
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 500,
-      background: tag.color, color: 'white',
-    }}>
-      {tag.name}
-      {onRemove && (
-        <button
-          type="button"
-          onClick={onRemove}
-          style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: 0, fontSize: 14, lineHeight: 1, opacity: 0.8 }}
-        >
-          ×
-        </button>
-      )}
-    </span>
-  );
-}
-
-// Type to filter existing tags; if nothing matches exactly, Enter (or the "+ Create" row) makes a new one.
-function TagPicker({ tags, selected, onChange, onCreate }) {
-  const [query, setQuery] = useState('');
-  const [open, setOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const boxRef = useRef(null);
-
-  useEffect(() => {
-    const handler = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const q = query.trim().toLowerCase();
-  const options = tags.filter((t) => !selected.includes(t._id) && t.name.toLowerCase().includes(q));
-  const exact = tags.find((t) => t.name.toLowerCase() === q);
-
-  // Close after each pick so the list can't sit over whatever is below it (e.g. the Upload button).
-  const pick = (id) => {
-    onChange([...selected, id]);
-    setQuery('');
-    setOpen(false);
-  };
-
-  const create = async () => {
-    const name = query.trim();
-    if (!name || creating) return;
-    setCreating(true);
-    try {
-      const tag = await onCreate(name);
-      if (tag) pick(tag._id);
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const onKeyDown = (e) => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    if (!q) return;
-    if (exact) { if (!selected.includes(exact._id)) pick(exact._id); else { setQuery(''); setOpen(false); } }
-    else if (options.length === 1) pick(options[0]._id);
-    else create();
-  };
-
-  const rowStyle = { padding: '8px 12px', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 };
-  const hover = {
-    onMouseEnter: (e) => { e.currentTarget.style.background = 'var(--primary-light)'; },
-    onMouseLeave: (e) => { e.currentTarget.style.background = 'white'; },
-  };
-
-  return (
-    <div ref={boxRef}>
-      {selected.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-          {selected.map((id) => {
-            const tag = tags.find((t) => t._id === id);
-            return tag && <TagChip key={id} tag={tag} onRemove={() => onChange(selected.filter((s) => s !== id))} />;
-          })}
-        </div>
-      )}
-      <div style={{ position: 'relative' }}>
-        <input
-          type="text"
-          placeholder="Type to find or create a tag…"
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={onKeyDown}
-        />
-        {open && (options.length > 0 || (q && !exact)) && (
-          <div style={{
-            position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, marginTop: 2,
-            background: 'white', border: '1px solid var(--border)', borderRadius: 6,
-            boxShadow: 'var(--shadow-md)', maxHeight: 220, overflowY: 'auto',
-          }}>
-            {options.map((t) => (
-              <div key={t._id} style={rowStyle} onMouseDown={(e) => { e.preventDefault(); pick(t._id); }} {...hover}>
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: t.color, flexShrink: 0 }} />
-                {t.name}
-              </div>
-            ))}
-            {q && !exact && (
-              <div
-                style={{ ...rowStyle, color: 'var(--primary-dark)', fontWeight: 500, borderTop: options.length ? '1px solid var(--border)' : 'none' }}
-                onMouseDown={(e) => { e.preventDefault(); create(); }}
-                {...hover}
-              >
-                {creating ? 'Creating…' : `+ Create tag "${query.trim()}"`}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+    <div ref={ref} style={{ background: 'var(--bg)', borderRadius: 6, minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+      {!url ? <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading…</span>
+        : isImage(file) ? <img src={url} alt={file.name} style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 140px)', objectFit: 'contain' }} />
+        : <iframe src={url} title={file.name} style={{ width: '100%', height: 'calc(100vh - 160px)', minHeight: 320, border: 'none' }} />}
     </div>
   );
 }
 
+const FolderIcon = ({ size = 22 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+  </svg>
+);
+
 export default function FilesTab() {
   const { isSuperAdmin } = useAuth();
+  const [folders, setFolders] = useState([]);
   const [files, setFiles] = useState([]);
-  const [tags, setTags] = useState([]);
+  const [currentId, setCurrentId] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const [picked, setPicked] = useState([]);
   const [uploadName, setUploadName] = useState('');
-  const [uploadTags, setUploadTags] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const fileInputRef = useRef(null);
 
+  const [newFolder, setNewFolder] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
   const [search, setSearch] = useState('');
-  const [filterTag, setFilterTag] = useState('');
   const [openFile, setOpenFile] = useState(null);
 
+  const loadFolders = useCallback(() => api.get('/folders').then(({ data }) => setFolders(data)), []);
+  const loadFiles = useCallback(() => {
+    const params = search.trim() ? { search: search.trim() } : { folder: currentId || ROOT };
+    return api.get('/files', { params }).then(({ data }) => setFiles(data));
+  }, [search, currentId]);
+
+  useEffect(() => { loadFolders(); }, [loadFolders]);
   useEffect(() => {
-    Promise.all([api.get('/files'), api.get('/file-tags')])
-      .then(([f, t]) => { setFiles(f.data); setTags(t.data); })
-      .finally(() => setLoading(false));
-  }, []);
+    setLoading(true);
+    const t = setTimeout(() => { loadFiles().finally(() => setLoading(false)); }, search ? 250 : 0);
+    return () => clearTimeout(t);
+  }, [loadFiles, search]);
 
-  const previews = useMemo(() => picked.map((f) => URL.createObjectURL(f)), [picked]);
-  useEffect(() => () => previews.forEach((u) => URL.revokeObjectURL(u)), [previews]);
+  const byId = useMemo(() => new Map(folders.map((f) => [f._id, f])), [folders]);
+  const pathOf = useCallback((id) => {
+    const parts = [];
+    let cur = byId.get(id);
+    while (cur) { parts.unshift(cur); cur = cur.parent ? byId.get(cur.parent) : null; }
+    return parts;
+  }, [byId]);
+  const labelOf = useCallback((id) => (id ? pathOf(id).map((f) => f.name).join(' / ') : 'Files'), [pathOf]);
 
-  const createTag = async (name) => {
-    try {
-      const { data } = await api.post('/file-tags', { name, color: TAG_COLORS[tags.length % TAG_COLORS.length] });
-      setTags((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
-      return data;
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to create tag');
-      return null;
-    }
-  };
+  const subfolders = useMemo(
+    () => folders.filter((f) => String(f.parent || '') === String(currentId || '')).sort((a, b) => a.name.localeCompare(b.name)),
+    [folders, currentId]
+  );
+  const searching = Boolean(search.trim());
+  const breadcrumb = [{ _id: null, name: 'Files' }, ...pathOf(currentId)];
 
-  const deleteTag = async (tag) => {
-    if (!confirm(`Delete tag "${tag.name}"? It will be removed from every file.`)) return;
-    try {
-      await api.delete(`/file-tags/${tag._id}`);
-      setTags((prev) => prev.filter((t) => t._id !== tag._id));
-      setFiles((prev) => prev.map((f) => ({ ...f, tags: f.tags.filter((t) => t._id !== tag._id) })));
-      setUploadTags((prev) => prev.filter((id) => id !== tag._id));
-      if (filterTag === tag._id) setFilterTag('');
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to delete tag');
-    }
-  };
+  const previews = useMemo(() => picked.map((f) => (f.type.startsWith('image/') ? URL.createObjectURL(f) : null)), [picked]);
+  useEffect(() => () => previews.forEach((u) => u && URL.revokeObjectURL(u)), [previews]);
 
   const resetUpload = () => {
     setPicked([]);
     setUploadName('');
-    setUploadTags([]);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (picked.length === 0) return;
+    if (!picked.length) return;
     setUploadError('');
     setUploading(true);
     try {
       const body = new FormData();
       picked.forEach((f) => body.append('files', f));
       if (picked.length === 1 && uploadName.trim()) body.append('name', uploadName.trim());
-      body.append('tags', JSON.stringify(uploadTags));
-      const { data } = await api.post('/files', body);
-      setFiles((prev) => [...data, ...prev]);
+      body.append('folder', currentId || ROOT);
+      await api.post('/files', body);
       resetUpload();
+      if (searching) setSearch('');
+      else await loadFiles();
     } catch (err) {
-      setUploadError(err.response?.data?.message || 'Upload failed');
+      setUploadError(errMsg(err, 'Upload failed'));
     } finally {
       setUploading(false);
     }
   };
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return files.filter((f) =>
-      (!q || f.name.toLowerCase().includes(q)) &&
-      (!filterTag || f.tags.some((t) => t._id === filterTag)));
-  }, [files, search, filterTag]);
-
-  const onFileSaved = (updated) => {
-    setFiles((prev) => prev.map((f) => (f._id === updated._id ? updated : f)));
-    setOpenFile(updated);
+  const handleCreateFolder = async (e) => {
+    e.preventDefault();
+    const name = newFolder.trim();
+    if (!name) return;
+    setCreatingFolder(true);
+    try {
+      await api.post('/folders', { name, parent: currentId || ROOT });
+      setNewFolder('');
+      await loadFolders();
+    } catch (err) {
+      alert(errMsg(err, 'Could not create the folder'));
+    } finally {
+      setCreatingFolder(false);
+    }
   };
 
-  const onFileDeleted = (id) => {
-    setFiles((prev) => prev.filter((f) => f._id !== id));
-    setOpenFile(null);
+  const handleRenameFolder = async (folder) => {
+    const name = prompt('Rename folder', folder.name);
+    if (!name || name.trim() === folder.name) return;
+    try {
+      await api.patch(`/folders/${folder._id}`, { name: name.trim() });
+      await loadFolders();
+    } catch (err) {
+      alert(errMsg(err, 'Could not rename the folder'));
+    }
+  };
+
+  const handleDeleteFolder = async (folder) => {
+    if (!confirm(`Delete folder "${folder.name}"?`)) return;
+    try {
+      await api.delete(`/folders/${folder._id}`);
+      await loadFolders();
+    } catch (err) {
+      alert(errMsg(err, 'Could not delete the folder'));
+    }
+  };
+
+  const afterFileChange = async (updated) => {
+    await loadFiles();
+    setOpenFile(updated || null);
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, alignItems: 'start' }}>
-      {/* Upload */}
-      <div className="card">
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Add Images</h2>
-        <form onSubmit={handleUpload}>
-          <div className="form-group" style={{ marginBottom: 12 }}>
-            <label>Images</label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={ACCEPT}
-              multiple
-              onChange={(e) => setPicked(Array.from(e.target.files || []))}
-            />
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>JPG, PNG, WEBP or GIF · up to 15 MB each · 20 at a time</p>
-          </div>
+    <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 20, alignItems: 'start' }}>
+      {/* Left: new folder + upload */}
+      <div>
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>New Folder</h2>
+          <form onSubmit={handleCreateFolder} style={{ display: 'flex', gap: 6 }}>
+            <input type="text" placeholder="Folder name" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} />
+            <button type="submit" className="btn-primary" disabled={creatingFolder || !newFolder.trim()} style={{ whiteSpace: 'nowrap' }}>Create</button>
+          </form>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+            Created inside <strong>{labelOf(currentId)}</strong>
+          </p>
+        </div>
 
-          {picked.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 12 }}>
-              {previews.map((url, i) => (
-                <img key={url} src={url} alt={picked[i].name} title={picked[i].name}
-                  style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 6 }} />
-              ))}
+        <div className="card">
+          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Add Files</h2>
+          <form onSubmit={handleUpload}>
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <input ref={fileInputRef} type="file" accept={ACCEPT} multiple onChange={(e) => setPicked(Array.from(e.target.files || []))} />
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Photos or PDFs · up to 15 MB each · 20 at a time</p>
             </div>
-          )}
 
-          <div className="form-group" style={{ marginBottom: 12 }}>
-            <label>Name</label>
-            {picked.length > 1 ? (
-              <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{picked.length} images — each keeps its own filename. Rename them after uploading.</p>
-            ) : (
-              <input
-                type="text"
-                placeholder={picked[0] ? picked[0].name.replace(/\.[^.]+$/, '') : 'Defaults to the filename'}
-                value={uploadName}
-                onChange={(e) => setUploadName(e.target.value)}
-              />
+            {picked.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 12 }}>
+                {picked.map((f, i) => (
+                  <div key={`${f.name}-${i}`} title={f.name} style={{ aspectRatio: '1', borderRadius: 6, overflow: 'hidden', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {previews[i] ? <img src={previews[i]} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <PdfGlyph size={22} />}
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
 
-          <div className="form-group" style={{ marginBottom: 16 }}>
-            <label>Tags</label>
-            <TagPicker tags={tags} selected={uploadTags} onChange={setUploadTags} onCreate={createTag} />
-          </div>
-
-          {uploadError && <p className="error-msg" style={{ marginBottom: 10 }}>{uploadError}</p>}
-          <button type="submit" className="btn-primary" style={{ width: '100%' }} disabled={uploading || picked.length === 0}>
-            {uploading ? 'Uploading…' : picked.length > 1 ? `Upload ${picked.length} Images` : 'Upload'}
-          </button>
-        </form>
-
-        {isSuperAdmin && tags.length > 0 && (
-          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Manage Tags
-            </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {tags.map((tag) => (
-                <span key={tag._id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 999, background: tag.color + '20', color: tag.color, fontSize: 12, fontWeight: 500 }}>
-                  {tag.name}
-                  <button
-                    type="button"
-                    onClick={() => deleteTag(tag)}
-                    style={{ background: 'none', border: 'none', color: tag.color, cursor: 'pointer', padding: '0 0 0 2px', fontSize: 14, lineHeight: 1 }}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label>Name</label>
+              {picked.length > 1 ? (
+                <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{picked.length} files — each keeps its own filename.</p>
+              ) : (
+                <input type="text" placeholder={picked[0] ? picked[0].name.replace(/\.[^.]+$/, '') : 'Defaults to the filename'} value={uploadName} onChange={(e) => setUploadName(e.target.value)} />
+              )}
             </div>
-          </div>
-        )}
+
+            {uploadError && <p className="error-msg" style={{ marginBottom: 10 }}>{uploadError}</p>}
+            <button type="submit" className="btn-primary" style={{ width: '100%' }} disabled={uploading || !picked.length}>
+              {uploading ? 'Uploading…' : picked.length > 1 ? `Upload ${picked.length} Files` : 'Upload'}
+            </button>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, textAlign: 'center' }}>
+              Into <strong>{labelOf(currentId)}</strong>
+            </p>
+          </form>
+        </div>
       </div>
 
-      {/* Library */}
+      {/* Right: browser */}
       <div>
         <div className="card" style={{ marginBottom: 16, padding: '14px 20px' }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              type="search"
-              placeholder="Search files by name…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{ flex: '1 1 220px' }}
-            />
-            <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)} style={{ width: 170 }}>
-              <option value="">All Tags</option>
-              {tags.map((t) => <option key={t._id} value={t._id}>{t.name}</option>)}
-            </select>
+            <input type="search" placeholder="Search all files by name…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: '1 1 240px' }} />
             <span style={{ color: 'var(--text-muted)', fontSize: 13, whiteSpace: 'nowrap' }}>
-              {filtered.length} {filtered.length === 1 ? 'file' : 'files'}
+              {files.length} {files.length === 1 ? 'file' : 'files'}{!searching && subfolders.length ? ` · ${subfolders.length} folder${subfolders.length > 1 ? 's' : ''}` : ''}
             </span>
           </div>
+
+          {!searching && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 13, flexWrap: 'wrap' }}>
+              {breadcrumb.map((crumb, i) => (
+                <span key={crumb._id || 'root'} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {i > 0 && <span style={{ color: 'var(--text-muted)' }}>/</span>}
+                  {i === breadcrumb.length - 1 ? (
+                    <strong>{crumb.name}</strong>
+                  ) : (
+                    <button onClick={() => setCurrentId(crumb._id)} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary-dark)', fontSize: 13, cursor: 'pointer' }}>
+                      {crumb.name}
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
+
+        {searching && <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>Searching every folder.</p>}
+
+        {!searching && subfolders.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 12, marginBottom: 16 }}>
+            {subfolders.map((f) => (
+              <div key={f._id} className="card" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button
+                  onClick={() => setCurrentId(f._id)}
+                  style={{ background: 'none', border: 'none', padding: 0, display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, cursor: 'pointer', color: 'var(--text)', textAlign: 'left' }}
+                >
+                  <span style={{ color: 'var(--primary)', display: 'flex' }}><FolderIcon /></span>
+                  <span style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                </button>
+                <button title="Rename" onClick={() => handleRenameFolder(f)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2 }}>✎</button>
+                {isSuperAdmin && (
+                  <button title="Delete" onClick={() => handleDeleteFolder(f)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', padding: 2, fontSize: 16, lineHeight: 1 }}>×</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {loading ? (
           <div className="card"><div className="empty-state">Loading...</div></div>
-        ) : filtered.length === 0 ? (
+        ) : files.length === 0 ? (
           <div className="card">
-            <div className="empty-state">{files.length === 0 ? 'No files yet. Add images on the left.' : 'No files match your search.'}</div>
+            <div className="empty-state">
+              {searching ? 'No files match your search.' : subfolders.length ? 'No files here — open a folder above.' : 'Nothing here yet. Add files on the left.'}
+            </div>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14 }}>
-            {filtered.map((f) => (
-              <div
-                key={f._id}
-                className="card"
-                onClick={() => setOpenFile(f)}
-                style={{ padding: 0, overflow: 'hidden', cursor: 'pointer' }}
-              >
-                <AuthImage fileId={f._id} alt={f.name} style={{ width: '100%', aspectRatio: '4 / 3' }} />
+            {files.map((f) => (
+              <div key={f._id} className="card" onClick={() => setOpenFile(f)} style={{ padding: 0, overflow: 'hidden', cursor: 'pointer' }}>
+                <Thumb file={f} style={{ width: '100%', aspectRatio: '4 / 3' }} />
                 <div style={{ padding: '10px 12px' }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.name}>
-                    {f.name}
-                  </div>
+                  <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.name}>{f.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
                     {new Date(f.createdAt).toLocaleDateString()} · {f.createdBy || '—'}
                   </div>
-                  {f.tags.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-                      {f.tags.map((t) => <TagChip key={t._id} tag={t} />)}
+                  {searching && (
+                    <div style={{ fontSize: 11, color: 'var(--primary-dark)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <FolderIcon size={13} /> {labelOf(f.folder)}
                     </div>
                   )}
                 </div>
@@ -395,21 +333,20 @@ export default function FilesTab() {
       {openFile && (
         <FileModal
           file={openFile}
-          tags={tags}
+          folders={folders}
+          labelOf={labelOf}
           canDelete={isSuperAdmin}
-          onCreateTag={createTag}
           onClose={() => setOpenFile(null)}
-          onSaved={onFileSaved}
-          onDeleted={onFileDeleted}
+          onChanged={afterFileChange}
         />
       )}
     </div>
   );
 }
 
-function FileModal({ file, tags, canDelete, onCreateTag, onClose, onSaved, onDeleted }) {
+function FileModal({ file, folders, labelOf, canDelete, onClose, onChanged }) {
   const [name, setName] = useState(file.name);
-  const [fileTags, setFileTags] = useState(file.tags.map((t) => t._id));
+  const [folder, setFolder] = useState(file.folder || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -419,18 +356,20 @@ function FileModal({ file, tags, canDelete, onCreateTag, onClose, onSaved, onDel
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const original = file.tags.map((t) => t._id);
-  const dirty = name.trim() !== file.name ||
-    fileTags.length !== original.length || fileTags.some((id) => !original.includes(id));
+  const options = useMemo(
+    () => folders.map((f) => ({ id: f._id, label: labelOf(f._id) })).sort((a, b) => a.label.localeCompare(b.label)),
+    [folders, labelOf]
+  );
+  const dirty = name.trim() !== file.name || String(folder) !== String(file.folder || '');
 
   const save = async () => {
     setError('');
     setSaving(true);
     try {
-      const { data } = await api.patch(`/files/${file._id}`, { name, tags: fileTags });
-      onSaved(data);
+      const { data } = await api.patch(`/files/${file._id}`, { name, folder: folder || 'root' });
+      await onChanged(data);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to save');
+      setError(errMsg(err, 'Failed to save'));
     } finally {
       setSaving(false);
     }
@@ -454,9 +393,9 @@ function FileModal({ file, tags, canDelete, onCreateTag, onClose, onSaved, onDel
     if (!confirm(`Delete "${file.name}"? This cannot be undone.`)) return;
     try {
       await api.delete(`/files/${file._id}`);
-      onDeleted(file._id);
+      await onChanged(null);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to delete');
+      alert(errMsg(err, 'Failed to delete'));
     }
   };
 
@@ -465,9 +404,8 @@ function FileModal({ file, tags, canDelete, onCreateTag, onClose, onSaved, onDel
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
     >
-      <div className="card" style={{ width: '100%', maxWidth: 980, maxHeight: '100%', display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20, padding: 20, overflow: 'hidden' }}>
-        <AuthImage fileId={file._id} alt={file.name} style={{ minHeight: 300, maxHeight: 'calc(100vh - 100px)', borderRadius: 6, objectFit: 'contain' }} />
-
+      <div className="card" style={{ width: '100%', maxWidth: 1040, maxHeight: '100%', display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20, padding: 20, overflow: 'hidden' }}>
+        <Preview file={file} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button className="btn-ghost btn-sm" onClick={onClose}>Close</button>
@@ -477,8 +415,11 @@ function FileModal({ file, tags, canDelete, onCreateTag, onClose, onSaved, onDel
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>Tags</label>
-            <TagPicker tags={tags} selected={fileTags} onChange={setFileTags} onCreate={onCreateTag} />
+            <label>Folder</label>
+            <select value={folder} onChange={(e) => setFolder(e.target.value)}>
+              <option value="">Files (top level)</option>
+              {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7 }}>
             <div>File: {file.originalName}</div>

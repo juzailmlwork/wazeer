@@ -25,7 +25,7 @@ app.use('/api/employees', require('./routes/employees'));
 app.use('/api/salary-records', require('./routes/salary-records'));
 app.use('/api/closing-stock', require('./routes/closing-stock'));
 app.use('/api/files', require('./routes/files'));
-app.use('/api/file-tags', require('./routes/file-tags'));
+app.use('/api/folders', require('./routes/folders'));
 app.use('/api/backup', require('./routes/backup'));
 
 async function seedUsers() {

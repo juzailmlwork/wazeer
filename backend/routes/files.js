@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const multer = require('multer');
 const File = require('../models/File');
+const Folder = require('../models/Folder');
 const auth = require('../middleware/auth');
 
 const { UPLOAD_DIR } = require('../config/paths');
@@ -18,7 +19,9 @@ const EXTENSIONS = {
   'image/png': '.png',
   'image/webp': '.webp',
   'image/gif': '.gif',
+  'application/pdf': '.pdf',
 };
+const KINDS = 'a JPG, PNG, WEBP, GIF or PDF';
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -28,20 +31,20 @@ const upload = multer({
   limits: { fileSize: 15 * 1024 * 1024, files: 20 },
   fileFilter: (req, file, cb) => {
     if (EXTENSIONS[file.mimetype]) return cb(null, true);
-    cb(new Error(`${file.originalname} is not a JPG, PNG, WEBP or GIF image`));
+    cb(new Error(`${file.originalname} is not ${KINDS} file`));
   },
 });
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const stripExt = (name) => name.replace(/\.[^.]+$/, '');
 
-function parseTags(raw) {
-  let tags = raw;
-  if (typeof raw === 'string') {
-    try { tags = JSON.parse(raw); } catch { tags = []; }
-  }
-  if (!Array.isArray(tags)) return [];
-  return tags.filter((id) => mongoose.isValidObjectId(id));
+// "" / "root" / anything invalid means the top level.
+const asFolderId = (v) => (v && v !== 'root' && mongoose.isValidObjectId(v) ? new mongoose.Types.ObjectId(v) : null);
+
+async function resolveFolder(raw) {
+  const id = asFolderId(raw);
+  if (id && !(await Folder.exists({ _id: id }))) throw new Error('That folder no longer exists');
+  return id;
 }
 
 const removeFromDisk = (storedName) =>
@@ -50,9 +53,10 @@ const removeFromDisk = (storedName) =>
 router.get('/', auth, async (req, res) => {
   try {
     const filter = {};
+    // A search looks everywhere; otherwise you see just the folder you're in.
     if (req.query.search) filter.name = { $regex: escapeRegex(req.query.search.trim()), $options: 'i' };
-    if (req.query.tag && mongoose.isValidObjectId(req.query.tag)) filter.tags = req.query.tag;
-    const files = await File.find(filter).populate('tags').sort({ createdAt: -1 });
+    else if (req.query.folder !== undefined) filter.folder = asFolderId(req.query.folder);
+    const files = await File.find(filter).sort({ createdAt: -1 });
     res.json(files);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -72,7 +76,7 @@ router.post('/', auth, (req, res) => {
     if (uploaded.length === 0) return res.status(400).json({ message: 'No images uploaded' });
 
     try {
-      const tags = parseTags(req.body.tags);
+      const folder = await resolveFolder(req.body.folder);
       // A custom name only makes sense for a single image; batches keep their filenames.
       const customName = uploaded.length === 1 ? (req.body.name || '').trim() : '';
       const docs = await File.insertMany(uploaded.map((f) => ({
@@ -81,11 +85,10 @@ router.post('/', auth, (req, res) => {
         storedName: f.filename,
         mimeType: f.mimetype,
         size: f.size,
-        tags,
+        folder,
         createdBy: req.user.username,
       })));
-      const populated = await File.find({ _id: { $in: docs.map((d) => d._id) } }).populate('tags').sort({ createdAt: -1 });
-      res.status(201).json(populated);
+      res.status(201).json(docs);
     } catch (err) {
       await Promise.all(uploaded.map((f) => removeFromDisk(f.filename)));
       res.status(400).json({ message: err.message });
@@ -118,8 +121,8 @@ router.patch('/:id', auth, async (req, res) => {
       if (!req.body.name.trim()) return res.status(400).json({ message: 'Name is required' });
       update.name = req.body.name.trim();
     }
-    if (req.body.tags !== undefined) update.tags = parseTags(req.body.tags);
-    const file = await File.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true }).populate('tags');
+    if (req.body.folder !== undefined) update.folder = await resolveFolder(req.body.folder);
+    const file = await File.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
     if (!file) return res.status(404).json({ message: 'File not found' });
     res.json(file);
   } catch (err) {

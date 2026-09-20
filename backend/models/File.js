@@ -8,14 +8,15 @@ const fileSchema = new mongoose.Schema(
     storedName: { type: String, required: true, unique: true },
     mimeType: { type: String, required: true },
     size: { type: Number, required: true },
-    tags: [{ type: mongoose.Schema.Types.ObjectId, ref: 'FileTag' }],
+    // null = top level of the Files tab.
+    folder: { type: mongoose.Schema.Types.ObjectId, ref: 'Folder', default: null },
     createdBy: { type: String },
   },
   { timestamps: true }
 );
 
 fileSchema.index({ name: 1 });
-fileSchema.index({ tags: 1 });
+fileSchema.index({ folder: 1 });
 fileSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('File', fileSchema);
