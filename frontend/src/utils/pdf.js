@@ -5,9 +5,9 @@ const BRAND_COLOR = [22, 163, 74]; // --primary green
 const MUTED = [120, 120, 120];
 const DARK = [30, 30, 30];
 
-function addHeader(doc, title, subtitle) {
+function addHeader(doc, title, subtitle, pageWidth = 210) {
   doc.setFillColor(...BRAND_COLOR);
-  doc.rect(0, 0, 210, 16, 'F');
+  doc.rect(0, 0, pageWidth, 16, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
@@ -15,7 +15,7 @@ function addHeader(doc, title, subtitle) {
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  doc.text(new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }), 196, 10.5, { align: 'right' });
+  doc.text(new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }), pageWidth - 14, 10.5, { align: 'right' });
 
   doc.setTextColor(...DARK);
   doc.setFontSize(16);
@@ -30,8 +30,8 @@ function addHeader(doc, title, subtitle) {
   }
 }
 
-function addStatRow(doc, stats, y) {
-  const colW = (210 - 28) / stats.length;
+function addStatRow(doc, stats, y, pageWidth = 210) {
+  const colW = (pageWidth - 28) / stats.length;
   stats.forEach(({ label, value }, i) => {
     const x = 14 + i * colW;
     doc.setFillColor(245, 247, 250);
@@ -379,6 +379,61 @@ export function exportSalaryMonthDailyPDF({ month, year, records, employee }) {
   });
 
   doc.save(`salary-all-employees-${year}-${String(month + 1).padStart(2, '0')}-daily.pdf`);
+}
+
+// Per-item purchases and sales over a period. Every item is listed, in alphabetical order;
+// rows with movement in the period are tinted so they stand out from the untouched ones.
+export function exportStockMovementPDF({ periodLabel, yardLabel, rows, totals }) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+  const W = 297;
+  const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const int = (n) => Number(n).toLocaleString('en-US');
+  const active = rows.filter((r) => r.active);
+
+  addHeader(doc, 'Purchases & Sales Report', `${periodLabel}  ·  ${yardLabel}`, W);
+  const y = addStatRow(doc, [
+    { label: 'Items', value: int(rows.length) },
+    { label: 'With Movement', value: int(active.length) },
+    { label: 'Purchased (kg)', value: fmt(totals.purchaseWeight) },
+    { label: 'Purchased Value', value: fmt(totals.purchaseValue) },
+    { label: 'Sold (kg)', value: fmt(totals.saleWeight) },
+    { label: 'Sold Value', value: fmt(totals.saleValue) },
+  ], 40, W);
+
+  const numeric = [1, 2, 3, 4];
+  autoTable(doc, {
+    startY: y,
+    head: [[
+      { content: 'Item', rowSpan: 2 },
+      { content: 'Purchased', colSpan: 2, styles: { halign: 'center' } },
+      { content: 'Sold', colSpan: 2, styles: { halign: 'center' } },
+    ], ['Weight (kg)', 'Value', 'Weight (kg)', 'Value']],
+    body: rows.map((r) => [r.name, fmt(r.purchaseWeight), fmt(r.purchaseValue), fmt(r.saleWeight), fmt(r.saleValue)]),
+    foot: [['Total', fmt(totals.purchaseWeight), fmt(totals.purchaseValue), fmt(totals.saleWeight), fmt(totals.saleValue)]],
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 9, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 8.5, textColor: DARK },
+    footStyles: { fillColor: [240, 253, 244], textColor: BRAND_COLOR, fontStyle: 'bold', fontSize: 9.5 },
+    columnStyles: Object.fromEntries(numeric.map((c) => [c, { halign: 'right' }])),
+    didParseCell: (data) => {
+      if (data.section === 'body') {
+        const row = rows[data.row.index];
+        if (row?.active) {
+          data.cell.styles.fillColor = [220, 252, 231]; // moved in this period
+          data.cell.styles.textColor = [22, 101, 52];
+          data.cell.styles.fontStyle = 'bold';
+        } else {
+          data.cell.styles.textColor = MUTED;
+        }
+      }
+      if (data.section !== 'head' || data.row.index === 1) {
+        if (numeric.includes(data.column.index)) data.cell.styles.halign = 'right';
+      }
+    },
+    showFoot: 'lastPage',
+    margin: { left: 14, right: 14 },
+  });
+
+  doc.save(`purchases-sales-${periodLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}.pdf`);
 }
 
 const MONTH_NAMES_PDF = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];

@@ -1,11 +1,29 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { exportStockMovementPDF } from '../../utils/pdf.js';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
 
 const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const pad = (n) => String(n).padStart(2, '0');
+const localDate = (d) => {
+  const dt = new Date(d);
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+};
+const monthRange = (month, year) => ({
+  from: `${year}-${pad(month + 1)}-01`,
+  to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
+});
+const YARDS = [
+  { id: '', label: 'All Yards' },
+  { id: 'hospital', label: 'Hospital' },
+  { id: 'nayawala', label: 'Nayawala' },
+];
+// Records from before yards existed count as hospital, as in the other tabs.
+const inYard = (r, yard) => !yard || (r.yard || 'hospital') === yard;
 
 export default function StockTab() {
   const { isSuperAdmin } = useAuth();
@@ -14,6 +32,7 @@ export default function StockTab() {
   const [year, setYear] = useState(now.getFullYear());
   const [transactions, setTransactions] = useState([]);
   const [sales, setSales] = useState([]);
+  const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // { [materialName]: value } for the selected month and previous month
@@ -27,10 +46,11 @@ export default function StockTab() {
   const inputRef = useRef(null);
 
   useEffect(() => {
-    Promise.all([api.get('/transactions'), api.get('/sales')])
-      .then(([txRes, saleRes]) => {
+    Promise.all([api.get('/transactions'), api.get('/sales'), api.get('/materials')])
+      .then(([txRes, saleRes, matRes]) => {
         setTransactions(txRes.data);
         setSales(saleRes.data);
+        setMaterials(matRes.data);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -91,6 +111,9 @@ export default function StockTab() {
     }
 
     const allMaterials = new Set([
+      // Every known item, so a month with no movement (e.g. before you started using the
+      // system) still lists rows you can set a closing stock on.
+      ...materials.map((m) => m.name).filter(Boolean),
       ...Object.keys(prevPurchases),
       ...Object.keys(thisPurchases),
       ...Object.keys(prevSales),
@@ -109,9 +132,62 @@ export default function StockTab() {
       const remaining = beginningStock + monthPurchases - monthSales;
       const realClosing = closingStocks[name]; // undefined if not set yet
 
-      return { name, beginningStock, monthPurchases, monthSales, remaining, realClosing };
+      const untouched = !beginningStock && !monthPurchases && !monthSales && realClosing === undefined;
+      return { name, beginningStock, monthPurchases, monthSales, remaining, realClosing, untouched };
     });
-  }, [transactions, sales, month, year, closingStocks, prevClosingStocks]);
+  }, [transactions, sales, materials, month, year, closingStocks, prevClosingStocks]);
+
+  const yearOptions = [];
+  for (let y = now.getFullYear(); y >= now.getFullYear() - 3; y--) yearOptions.push(y);
+
+  // ---- Purchases & sales report ----
+  const [reportMode, setReportMode] = useState('month'); // 'month' | 'range'
+  const [reportMonth, setReportMonth] = useState(now.getMonth());
+  const [reportYear, setReportYear] = useState(now.getFullYear());
+  const [rangeFrom, setRangeFrom] = useState(monthRange(now.getMonth(), now.getFullYear()).from);
+  const [rangeTo, setRangeTo] = useState(localDate(now));
+  const [reportYard, setReportYard] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+
+  const period = useMemo(() => {
+    if (reportMode === 'month') {
+      const { from, to } = monthRange(reportMonth, reportYear);
+      return { from, to, label: `${MONTH_NAMES[reportMonth]} ${reportYear}` };
+    }
+    return { from: rangeFrom, to: rangeTo, label: `${rangeFrom} to ${rangeTo}` };
+  }, [reportMode, reportMonth, reportYear, rangeFrom, rangeTo]);
+
+  const report = useMemo(() => {
+    const items = {};
+    // Start from the full item list so items with no movement still get a row.
+    const blank = (name) => ({ name, purchaseWeight: 0, purchaseValue: 0, saleWeight: 0, saleValue: 0 });
+    materials.forEach((m) => { if (m.name) items[m.name] = blank(m.name); });
+    const add = (name, kind, weight, value) => {
+      if (!name) return;
+      // Items deleted or renamed since still appear, so their history isn't hidden.
+      items[name] ||= blank(name);
+      items[name][`${kind}Weight`] += weight || 0;
+      items[name][`${kind}Value`] += value || 0;
+    };
+    const within = (r) => {
+      const d = localDate(r.createdAt);
+      return d >= period.from && d <= period.to && inYard(r, reportYard);
+    };
+    transactions.filter(within).forEach((tx) => tx.items.forEach((i) => add(i.materialName, 'purchase', i.weight, i.totalPrice)));
+    sales.filter(within).forEach((sale) => sale.items.forEach((i) => add(i.materialName, 'sale', i.weight, i.totalPrice)));
+
+    const rows = Object.values(items)
+      .map((r) => ({ ...r, active: r.purchaseWeight > 0 || r.saleWeight > 0 || r.purchaseValue > 0 || r.saleValue > 0 }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const totals = rows.reduce((t, r) => {
+      for (const k of ['purchaseWeight', 'purchaseValue', 'saleWeight', 'saleValue']) t[k] += r[k];
+      return t;
+    }, { purchaseWeight: 0, purchaseValue: 0, saleWeight: 0, saleValue: 0 });
+    return { rows, totals, activeCount: rows.filter((r) => r.active).length };
+  }, [transactions, sales, materials, period, reportYard]);
+
+  const rangeValid = reportMode === 'month' || (rangeFrom && rangeTo && rangeFrom <= rangeTo);
 
   const handleStartEdit = (name, currentValue) => {
     setEditing({ name, value: currentValue !== undefined ? String(currentValue) : '' });
@@ -142,9 +218,6 @@ export default function StockTab() {
     if (e.key === 'Escape') setEditing(null);
   };
 
-  const yearOptions = [];
-  for (let y = now.getFullYear(); y >= now.getFullYear() - 3; y--) yearOptions.push(y);
-
   return (
     <div>
       {/* Month/Year selector */}
@@ -170,6 +243,125 @@ export default function StockTab() {
             </select>
           </div>
         </div>
+      </div>
+
+      {/* Purchases & sales report — collapsed until asked for */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>Purchases &amp; Sales Report</span>
+          <button
+            className="btn-ghost btn-sm"
+            style={{ marginLeft: 'auto' }}
+            onClick={() => { setReportOpen((o) => !o); setShowPreview(false); }}
+          >
+            {reportOpen ? 'Close' : '↓ Download PDF'}
+          </button>
+        </div>
+
+        {reportOpen && (
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {[{ id: 'month', label: 'Month' }, { id: 'range', label: 'Date Range' }].map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setReportMode(m.id)}
+                style={{
+                  padding: '5px 14px', borderRadius: 6, fontSize: 13,
+                  fontWeight: reportMode === m.id ? 600 : 400,
+                  background: reportMode === m.id ? 'var(--primary)' : 'transparent',
+                  color: reportMode === m.id ? 'white' : 'var(--text-muted)',
+                  border: reportMode === m.id ? 'none' : '1px solid var(--border)',
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          {reportMode === 'month' ? (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select value={reportMonth} onChange={(e) => setReportMonth(Number(e.target.value))} style={{ width: 130 }}>
+                {MONTH_NAMES.map((m, i) => <option key={i} value={i}>{m}</option>)}
+              </select>
+              <select value={reportYear} onChange={(e) => setReportYear(Number(e.target.value))} style={{ width: 90 }}>
+                {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input type="date" value={rangeFrom} max={rangeTo} onChange={(e) => setRangeFrom(e.target.value)} style={{ width: 150 }} />
+              <span style={{ color: 'var(--text-muted)' }}>to</span>
+              <input type="date" value={rangeTo} min={rangeFrom} onChange={(e) => setRangeTo(e.target.value)} style={{ width: 150 }} />
+            </div>
+          )}
+
+          <select value={reportYard} onChange={(e) => setReportYard(e.target.value)} style={{ width: 130 }}>
+            {YARDS.map((y) => <option key={y.id} value={y.id}>{y.label}</option>)}
+          </select>
+
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button className="btn-ghost btn-sm" onClick={() => setShowPreview((v) => !v)} disabled={report.activeCount === 0}>
+              {showPreview ? 'Hide Preview' : 'Preview'}
+            </button>
+            <button
+              className="btn-primary btn-sm"
+              disabled={report.activeCount === 0 || !rangeValid}
+              onClick={() => exportStockMovementPDF({
+                periodLabel: period.label,
+                yardLabel: YARDS.find((y) => y.id === reportYard).label,
+                rows: report.rows,
+                totals: report.totals,
+              })}
+            >
+              Download
+            </button>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 10, fontSize: 13, color: 'var(--text-muted)' }}>
+          {!rangeValid ? 'The start date must be on or before the end date.'
+            : report.activeCount === 0 ? 'Nothing bought or sold in this period.'
+            : `${report.activeCount} of ${report.rows.length} items moved · ${fmt(report.totals.purchaseWeight)} kg purchased · ${fmt(report.totals.saleWeight)} kg sold`}
+        </div>
+
+        {showPreview && report.activeCount > 0 && (
+          <div style={{ marginTop: 14, border: '1px solid var(--border)', borderRadius: 8, overflowX: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th style={{ textAlign: 'right' }}>Purchased (kg)</th>
+                  <th style={{ textAlign: 'right' }}>Purchased Value</th>
+                  <th style={{ textAlign: 'right' }}>Sold (kg)</th>
+                  <th style={{ textAlign: 'right' }}>Sold Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.rows.map((r) => (
+                  <tr key={r.name} style={r.active ? { background: 'var(--primary-light)' } : undefined}>
+                    <td style={{ fontWeight: r.active ? 700 : 400, color: r.active ? '#166534' : 'var(--text-muted)' }}>{r.name}</td>
+                    <td style={{ textAlign: 'right', fontWeight: r.active ? 600 : 400, color: r.active ? '#15803d' : 'var(--text-muted)' }}>{fmt(r.purchaseWeight)}</td>
+                    <td style={{ textAlign: 'right', color: r.active ? '#15803d' : 'var(--text-muted)' }}>{fmt(r.purchaseValue)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: r.active ? 600 : 400, color: r.active ? '#dc2626' : 'var(--text-muted)' }}>{fmt(r.saleWeight)}</td>
+                    <td style={{ textAlign: 'right', color: r.active ? '#dc2626' : 'var(--text-muted)' }}>{fmt(r.saleValue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: '#f8fafc' }}>
+                  <td style={{ fontWeight: 600, padding: '10px 16px' }}>Total</td>
+                  <td style={{ textAlign: 'right', fontWeight: 700, padding: '10px 16px', color: '#15803d' }}>{fmt(report.totals.purchaseWeight)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 700, padding: '10px 16px', color: '#15803d' }}>{fmt(report.totals.purchaseValue)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 700, padding: '10px 16px', color: '#dc2626' }}>{fmt(report.totals.saleWeight)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 700, padding: '10px 16px', color: '#dc2626' }}>{fmt(report.totals.saleValue)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+        </div>
+        )}
       </div>
 
       {/* Table */}
@@ -203,8 +395,8 @@ export default function StockTab() {
             </thead>
             <tbody>
               {stockData.map((row) => (
-                <tr key={row.name}>
-                  <td style={{ fontWeight: 500 }}>{row.name}</td>
+                <tr key={row.name} style={row.untouched ? { color: 'var(--text-muted)' } : undefined}>
+                  <td style={{ fontWeight: row.untouched ? 400 : 500 }}>{row.name}</td>
                   <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{fmt(row.beginningStock)}</td>
                   <td style={{ textAlign: 'right', color: '#15803d', fontWeight: 500 }}>{fmt(row.monthPurchases)}</td>
                   <td style={{ textAlign: 'right', color: '#dc2626', fontWeight: 500 }}>{fmt(row.monthSales)}</td>
