@@ -27,9 +27,16 @@ router.post('/', auth, superAdminOnly, async (req, res) => {
       return res.status(400).json({ message: 'All fields are required' });
     }
     const hashed = await bcrypt.hash(password, 10);
-    const user = new User({ username, password: hashed, name, role });
+    const user = new User({ username, password: hashed, name, role, mustChangePassword: true });
     await user.save();
-    res.status(201).json({ _id: user._id, username: user.username, name: user.name, role: user.role, createdAt: user.createdAt });
+    res.status(201).json({
+      _id: user._id,
+      username: user.username,
+      name: user.name,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword,
+      createdAt: user.createdAt,
+    });
   } catch (err) {
     if (err.code === 11000) return res.status(400).json({ message: 'Username already exists' });
     res.status(400).json({ message: err.message });
@@ -42,9 +49,22 @@ router.patch('/:id/password', auth, superAdminOnly, async (req, res) => {
     if (!password || password.length < 6) {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     }
-    const hashed = await bcrypt.hash(password, 10);
-    await User.findByIdAndUpdate(req.params.id, { password: hashed });
-    res.json({ message: 'Password updated successfully' });
+    const target = await User.findById(req.params.id);
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    // A super admin resetting their own password has chosen it themselves, so there is nothing
+    // one-time about it. Anyone else's is a password they must replace at their next sign-in.
+    const oneTime = String(target._id) !== String(req.user.id);
+    target.password = await bcrypt.hash(password, 10);
+    target.mustChangePassword = oneTime;
+    await target.save();
+
+    res.json({
+      message: oneTime
+        ? `Password set. ${target.name} will be asked to choose their own at their next sign-in.`
+        : 'Password updated successfully',
+      mustChangePassword: oneTime,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

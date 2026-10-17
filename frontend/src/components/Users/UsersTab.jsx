@@ -14,6 +14,7 @@ export default function UsersTab() {
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [pwModal, setPwModal] = useState(null); // { id, username }
+  const [notice, setNotice] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [pwError, setPwError] = useState('');
@@ -56,6 +57,7 @@ export default function UsersTab() {
   };
 
   const openPwModal = (user) => {
+    setNotice('');
     setPwModal(user);
     setNewPassword('');
     setPwError('');
@@ -73,7 +75,11 @@ export default function UsersTab() {
     setPwError('');
     setPwSaving(true);
     try {
-      await api.patch(`/users/${pwModal._id}/password`, { password: newPassword });
+      const { data } = await api.patch(`/users/${pwModal._id}/password`, { password: newPassword });
+      setUsers((prev) => prev.map((u) => (
+        u._id === pwModal._id ? { ...u, mustChangePassword: data.mustChangePassword } : u
+      )));
+      setNotice(data.message);
       closePwModal();
     } catch (err) {
       setPwError(err.response?.data?.message || 'Failed to update password');
@@ -169,6 +175,17 @@ export default function UsersTab() {
           <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{users.length} users</span>
         </div>
 
+        {notice && (
+          <div style={{
+            background: '#dcfce7', color: '#15803d', fontSize: 13, padding: '10px 20px',
+            borderBottom: '1px solid var(--border)', display: 'flex',
+            justifyContent: 'space-between', alignItems: 'center', gap: 12,
+          }}>
+            <span>{notice}</span>
+            <button className="btn-ghost btn-sm" onClick={() => setNotice('')}>Dismiss</button>
+          </div>
+        )}
+
         {loading ? (
           <div className="empty-state">Loading...</div>
         ) : users.length === 0 ? (
@@ -187,7 +204,18 @@ export default function UsersTab() {
             <tbody>
               {users.map((u) => (
                 <tr key={u._id}>
-                  <td style={{ fontWeight: 500 }}>{u.name}</td>
+                  <td style={{ fontWeight: 500 }}>
+                    {u.name}
+                    {u.mustChangePassword && (
+                      <span
+                        className="badge"
+                        style={{ background: '#fef3c7', color: '#92400e', marginLeft: 8, fontWeight: 500 }}
+                        title="This user still has the password you set. They will be asked to choose their own at their next sign-in."
+                      >
+                        One-time password
+                      </span>
+                    )}
+                  </td>
                   <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{u.username}</td>
                   <td>
                     <span className="badge" style={{ background: ROLE_COLORS[u.role]?.bg, color: ROLE_COLORS[u.role]?.color }}>

@@ -7,7 +7,33 @@ const User = require('./models/User');
 
 const app = express();
 
-app.use(cors());
+// nginx (and, for the main site, the Vite dev server behind it) forwards the caller's address
+// in X-Forwarded-For. Without this, req.ip is the proxy's own 127.0.0.1 for every request and
+// the login throttle would count the whole world as one caller.
+app.set('trust proxy', Number(process.env.TRUST_PROXY ?? 1));
+
+// The browser app is served from the same origin as the API it calls, so day-to-day traffic
+// needs no CORS at all. The allowlist is what stops any other website from spending a stolen
+// token on this API from someone's browser.
+const ALLOWED_ORIGINS = (
+  process.env.CORS_ORIGINS
+  || 'https://fwr.limecodelabs.com,https://www.fwr.limecodelabs.com,https://fwrbe.limecodelabs.com,http://localhost:4200'
+).split(',').map((o) => o.trim()).filter(Boolean);
+
+app.use(cors({
+  origin(origin, cb) {
+    // No Origin header at all: same-origin requests, curl, the cron scripts, health checks.
+    // There is nothing to decide, so these pass.
+    if (!origin) return cb(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    // Answer without the CORS headers rather than erroring: the browser blocks the response,
+    // which is the point, and the server log stays free of noise from scanners.
+    cb(null, false);
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  maxAge: 86400,
+}));
 app.use(express.json());
 
 app.use('/api/auth', require('./routes/auth'));

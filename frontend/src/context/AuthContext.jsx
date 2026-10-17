@@ -8,20 +8,33 @@ export function AuthProvider({ children }) {
     return saved ? JSON.parse(saved) : null;
   });
 
-  const login = (userData, token) => {
+  // The password just typed at sign-in, held in memory only. It lets the forced-change screen
+  // confirm the current password without making someone type what they typed a second ago.
+  // Never written to storage, and dropped as soon as it is not needed.
+  const [signInPassword, setSignInPassword] = useState(null);
+
+  const login = (userData, token, password = null) => {
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(userData));
+    setSignInPassword(userData.mustChangePassword ? password : null);
     setUser(userData);
   };
 
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    setSignInPassword(null);
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isSuperAdmin: user?.role === 'super_admin' }}>
+    <AuthContext.Provider value={{
+      user,
+      login,
+      logout,
+      signInPassword,
+      isSuperAdmin: user?.role === 'super_admin',
+    }}>
       {children}
     </AuthContext.Provider>
   );
