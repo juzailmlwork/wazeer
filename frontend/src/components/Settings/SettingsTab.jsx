@@ -8,6 +8,26 @@ const fmtBytes = (b) => {
 };
 const errMsg = (err, fallback) => err.response?.data?.message || fallback;
 
+// Matches BACKUP_MAX_AGE_HOURS / the watchdog in backend/scripts/check-cloud-backup.js, so the
+// page flags a missed backup at the same point the SMS alert does.
+const MAX_AGE_HOURS = 30;
+
+// Restoring replaces every record, user and image in the system. The card is hidden until
+// someone actually needs it; flip this to true to bring it back. The API route is untouched,
+// so a restore can still be done with the steps in docs/BACKUP.md.
+const SHOW_RESTORE = false;
+
+const fmtAge = (ms) => {
+  const hours = ms / 3600000;
+  if (hours < 1) return `${Math.max(1, Math.round(ms / 60000))} min ago`;
+  if (hours < 24) {
+    const h = Math.round(hours);
+    return `${h} hour${h === 1 ? '' : 's'} ago`;
+  }
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+};
+
 function Card({ title, subtitle, children }) {
   return (
     <div className="card" style={{ marginBottom: 16 }}>
@@ -141,6 +161,7 @@ export default function SettingsTab() {
         </p>
       </Card>
 
+      {SHOW_RESTORE && (
       <Card title="Restore from Backup" subtitle="Replace all current data and images with the contents of a backup file.">
         <form onSubmit={handleRestore}>
           <div className="form-group" style={{ marginBottom: 12 }}>
@@ -174,6 +195,7 @@ export default function SettingsTab() {
           </Notice>
         )}
       </Card>
+      )}
 
       <Card title="Remote Storage" subtitle="Keep a copy of your backup off this server.">
         {!remote ? (
@@ -182,6 +204,7 @@ export default function SettingsTab() {
           <Notice kind="warning">Remote storage isn't set up yet.</Notice>
         ) : (
           <>
+            <LastBackup backups={remote.backups} />
             <button className="btn-primary" onClick={handleStoreRemote} disabled={storing}>
               {storing ? 'Storing backup…' : '☁ Store Backup Remotely'}
             </button>
@@ -209,6 +232,34 @@ export default function SettingsTab() {
           </>
         )}
       </Card>
+    </div>
+  );
+}
+
+// The headline date: a backup runs on its own every night, so the thing worth seeing at a
+// glance is whether the newest one is recent — not the list of filenames below it.
+function LastBackup({ backups }) {
+  if (backups.length === 0) {
+    return <Notice kind="warning">No backup has been stored remotely yet.</Notice>;
+  }
+  const at = new Date(backups[0].lastModified);
+  const ageMs = Date.now() - at.getTime();
+  const stale = ageMs / 3600000 > MAX_AGE_HOURS;
+  const palette = stale ? { bg: '#fef3c7', fg: '#92400e' } : { bg: '#dcfce7', fg: '#15803d' };
+
+  return (
+    <div style={{ background: palette.bg, borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+      <div style={{ fontSize: 12, color: palette.fg, opacity: 0.8, fontWeight: 500 }}>Last backed up</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: palette.fg, marginTop: 2 }}>
+        {at.toLocaleString()}{' '}
+        <span style={{ fontSize: 13, fontWeight: 500, opacity: 0.8 }}>({fmtAge(ageMs)})</span>
+      </div>
+      {stale && (
+        <div style={{ fontSize: 12, color: palette.fg, marginTop: 6 }}>
+          A backup is taken automatically every night at 11.50 pm. This one is older than that,
+          so the last run may have failed.
+        </div>
+      )}
     </div>
   );
 }
