@@ -7,7 +7,9 @@
     "dev": "nodemon server.js",
     "db:reset": "node scripts/resetDb.js",
     "db:seed": "node scripts/seed.js",
-    "db:migrate-file-folders": "node scripts/migrateFileTagsToFolders.js"
+    "db:migrate-file-folders": "node scripts/migrateFileTagsToFolders.js",
+    "backup:now": "node scripts/run-cloud-backup.js",
+    "backup:check": "node scripts/check-cloud-backup.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1136.0",

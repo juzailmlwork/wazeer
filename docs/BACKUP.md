@@ -65,48 +65,128 @@ Only one backup or restore runs at a time. Others get HTTP 409.
 Settings → **Remote Storage** → **Store Backup Remotely**. It streams a backup to the bucket as a
 multipart upload, with no temp file on disk, and lists the 20 newest stored backups.
 
-Until it's configured, the card only says *"Remote storage isn't set up yet."*
+The card leads with **Last backed up**, the timestamp of the newest stored backup, in green when
+it is under 30 hours old and amber with a warning when it is older. That threshold matches
+`BACKUP_MAX_AGE_HOURS`, so the page flags a missed night at the same point the SMS alert does.
+Until remote storage is configured the card only says *"Remote storage isn't set up yet."*
 
-## Setting up remote storage (when credentials arrive)
+After every upload the stored object's size is read back with `HeadObject` and compared against
+the bytes the zip writer actually produced. A multipart upload that lands short otherwise looks
+like a success — and pruning would then trust it enough to delete older copies.
 
-Add to `backend/.env`, then run `pm2 restart wazeer-backend`:
+---
 
+## The nightly backup
+
+Live since 17 Oct 2026.
+
+| | |
+|---|---|
+| Bucket | `s3://pd-lifeos-backup/wazeer-backup/` (us-east-1) |
+| When | `20 18 * * *` UTC in root's crontab = **23:50 Asia/Colombo**, which has no DST |
+| Retention | the newest **15** (`BACKUP_KEEP`) |
+| Log | `/var/log/wazeer-backup.log` |
+| Alerts | SMS to `BACKUP_ALERT_SMS` on failure, plus a daily freshness check |
+| First run | 78 KB, 1,163 records, 1 file |
+
+```bash
+crontab -l | grep wazeer                      # the two jobs
+tail -20 /var/log/wazeer-backup.log           # what the last runs said
+cd /root/jusail/wazeer/backend && npm run backup:now     # run one by hand
+cd /root/jusail/wazeer/backend && npm run backup:check   # report freshness now
 ```
-S3_BUCKET=<bucket>
-S3_REGION=<region, e.g. ap-south-1>
-AWS_ACCESS_KEY_ID=<key>
-AWS_SECRET_ACCESS_KEY=<secret>
-# optional
-S3_PREFIX=wazeer-backups/        # "folder" inside the bucket (default shown)
-S3_ENDPOINT=                     # only for S3-compatible services (MinIO, R2…); leave unset for AWS
+
+**Cron owns the schedule, not the backend.** A timer inside the server process dies with the
+process and says nothing when it stops; cron keeps its own clock, writes to a log, and is
+visible in `crontab -l`. `scripts/run-cloud-backup.js` reuses the app's own backup code, so a
+scheduled backup and a Settings click produce byte-identical archives.
+
+**`node` is pinned to an absolute path** in the crontab
+(`/root/.nvm/versions/node/v20.20.1/bin/node`). cron's default `PATH` finds `/usr/bin/node`,
+which is **v18.19.1**, while pm2 runs the backend on nvm's **v20.20.1**. Pinning keeps the
+backup on the same runtime as the app. **If node is ever upgraded, update these two cron lines.**
+
+Exit codes: `0` success, `1` failure, `2` remote storage not configured. Every non-zero exit
+sends an SMS first.
+
+## Retention: newest 15, never by age
+
+`BACKUP_KEEP=15` — one copy a night, so roughly the last fifteen days, at about 1.2 MB in total
+today.
+
+Deletion is **not** an S3 lifecycle rule and **not** by age. An age rule cannot tell a healthy
+rotating bucket from one where the backup has been failing all week; in the second case it
+deletes the last good copies on schedule and leaves nothing. Retention is by count instead, so a
+run of failures simply means nothing new arrives and the existing fifteen stay put.
+
+Pruning also only runs **after** that night's upload has verified its stored size, so a bad
+night can never trigger the deletion of good copies. Verified: an upload to a non-existent
+bucket and an upload to an unreachable endpoint both exit 1 and delete nothing.
+
+## Alerts
+
+Two independent triggers, both SMS via Notify.lk — the same account the LMS backup jobs use.
+
+| Trigger | When | Catches |
+|---|---|---|
+| `run-cloud-backup.js` | the nightly run exits non-zero | the zip, the upload or the prune failed; credentials revoked; bucket gone |
+| `check-cloud-backup.js` | 07:10 Asia/Colombo daily | the nightly job never ran at all |
+
+The second matters because a job that fails can alert, but a job that never fires cannot. The
+check reads the bucket, so it stays honest even if cron stops, the script is deleted, or the
+server was down at 23:50. It alerts when the newest backup is older than `BACKUP_MAX_AGE_HOURS`
+(30 — enough to catch one missed night by the next morning) and exits 1, so it also works as a
+probe for any external monitor.
+
+**Alerting never changes a run's outcome.** An undeliverable SMS must not turn a good backup
+into a failed one, nor mask the original error, so every failure path in `services/alert.js`
+warns and resolves. With no recipient or no API key configured it prints the message to the log
+and carries on.
+
+```bash
+# send yourself a test message
+cd /root/jusail/wazeer/backend && node -e "require('dotenv').config();require('./services/alert').alert('test alert').then(r=>console.log(r))"
 ```
 
-The template is in `backend/.env.example`. Check it worked: the card shows the
-**Store Backup Remotely** button. If it fails, look for `[remote-backup]` in
-`pm2 logs wazeer-backend`.
+Delivery depends on the sender ID: `SMS_SENDER_ID` is `NotifyDEMO`, Notify.lk's shared testing
+sender. The API accepts messages through it, but delivery to arbitrary numbers is not
+guaranteed. For alerts you can rely on, register a sender ID on the Notify.lk account and set
+`SMS_SENDER_ID` to it. No code changes needed.
 
-**Recommended bucket setup:**
-- Block all public access.
-- Turn on versioning.
-- Add a lifecycle rule to expire old backups, e.g. after 90 days.
+## Bucket setup
 
-**Least-privilege IAM policy** for the key, replacing `BUCKET` and the prefix:
+Backups share `pd-lifeos-backup` with LifeOS, under their own `wazeer-backup/` prefix. The
+bucket already blocks all public access and has AES256 default encryption.
+
+A dedicated bucket would be tidier — one bad policy or lifecycle rule currently reaches two
+businesses' backups. To move: create the bucket, change `S3_BUCKET` in `backend/.env`, restart
+the backend, run `npm run backup:now`, and copy the old objects across if you want the history.
+
+**Least-privilege IAM policy**, if the shared account-wide key is ever replaced with a scoped one:
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
-    { "Effect": "Allow", "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
-      "Resource": "arn:aws:s3:::BUCKET/wazeer-backups/*" },
+    { "Effect": "Allow", "Action": ["s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::pd-lifeos-backup/wazeer-backup/*" },
     { "Effect": "Allow", "Action": "s3:ListBucket",
-      "Resource": "arn:aws:s3:::BUCKET",
-      "Condition": { "StringLike": { "s3:prefix": "wazeer-backups/*" } } }
+      "Resource": "arn:aws:s3:::pd-lifeos-backup",
+      "Condition": { "StringLike": { "s3:prefix": "wazeer-backup/*" } } }
   ]
 }
 ```
 
+`s3:DeleteObject` is needed for pruning. Without it the backup still succeeds and old copies
+just accumulate — `run-cloud-backup.js` reports the prune failure and exits non-zero.
+
 The app never reads backups back from the bucket. To restore from one, download it from the AWS
 console and use **Restore** in Settings.
+
+**This app reads `S3_BUCKET` / `S3_REGION`.** LifeOS uses `BACKUP_S3_BUCKET` /
+`BACKUP_S3_REGION` for the same thing. Do not mix them: setting only the `BACKUP_S3_*` names
+here leaves remote storage quietly switched off.
+
 
 ## API reference
 
@@ -135,6 +215,9 @@ Error statuses:
 | `backend/services/backup.js` | Zip writer and reader, validation, restore, rollback, lock, snapshot pruning |
 | `backend/services/s3.js` | Remote storage: env config, streaming upload, listing, neutral errors |
 | `backend/routes/backup.js` | HTTP routes, download tokens, restore upload |
+| `backend/scripts/run-cloud-backup.js` | The nightly cron entry point: upload, verify, prune, alert |
+| `backend/scripts/check-cloud-backup.js` | Freshness watchdog, run every morning |
+| `backend/services/alert.js` | Notify.lk SMS, used by both scripts |
 | `backend/config/paths.js` | `UPLOAD_DIR` (default `backend/uploads`) and `BACKUP_DIR` (default `backend/backups`), both overridable by env |
 | `frontend/src/components/Settings/SettingsTab.jsx` | The Settings page |
 
@@ -182,8 +265,13 @@ Start only one backend at a time against an empty database: they race to seed th
   that.
 - **Upgrade Node before 2027.** AWS SDK releases after January 2027 require Node ≥ 22; the server
   runs Node 20.
-- **Remote uploads are manual.** A scheduled daily upload would be a small addition on top of
-  `services/s3.js → uploadBackup()`.
+- **A backup is not a point-in-time snapshot.** There are no MongoDB transactions (the local
+  Mongo is standalone), so a backup taken while people are writing can be a few seconds
+  inconsistent across collections. At 23:50 the plant is closed, which is most of why that hour
+  was chosen.
+- **The nightly job and the backend hold separate locks.** `exclusive()` is per-process, so a
+  cron backup and a restore started from Settings at the same moment would not see each other.
+  In practice nobody restores at ten to midnight.
 
 ## Manual recovery (if the app itself won't start)
 
@@ -195,7 +283,7 @@ unzip wazeer-backup-XXXX.zip -d restore
 for f in restore/db/*.ndjson; do
   mongoimport --uri "$MONGODB_URI" --collection "$(basename "$f" .ndjson)" --drop --file "$f"
 done
-cp restore/uploads/* /root/wazeer/backend/uploads/
+cp restore/uploads/* /root/jusail/wazeer/backend/uploads/
 pm2 restart wazeer-backend   # the app recreates any indexes on start
 ```
 
