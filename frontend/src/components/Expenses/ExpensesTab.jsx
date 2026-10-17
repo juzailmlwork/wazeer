@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/index.js';
+import useIsNarrow from '../../hooks/useIsNarrow.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { exportExpensesPDF } from '../../utils/pdf.js';
 
@@ -47,6 +48,11 @@ export default function ExpensesTab() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [showTagForm, setShowTagForm] = useState(false);
+  // On a phone the form is a dialog behind an Add button, so the list is the first
+  // thing on screen. Tag management stays out of the dialog entirely — it is a
+  // tidying-up job, not something you do while recording a transaction.
+  const narrow = useIsNarrow(900);
+  const [formOpen, setFormOpen] = useState(false);
   const [period, setPeriod] = useState('today');
   const [customFrom, setCustomFrom] = useState(todayStr());
   const [customTo, setCustomTo] = useState(todayStr());
@@ -73,6 +79,7 @@ export default function ExpensesTab() {
       setSelectedTags([...selectedTags, data._id]);
       setNewTagName('');
       setShowTagForm(false);
+      setFormOpen(false);
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to create tag');
     }
@@ -169,12 +176,10 @@ export default function ExpensesTab() {
     [tags, filterTag]
   );
 
-  return (
-    <div className="split" style={{ '--split-col': '360px' }}>
-      {/* Form */}
-      <div className="card">
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Add Expense</h2>
-        <form onSubmit={handleSubmit}>
+  const formFields = (
+    <>
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Add Expense</h2>
+      <form onSubmit={handleSubmit}>
           <div className="form-group" style={{ marginBottom: 12 }}>
             <label>Description <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
             <textarea
@@ -319,9 +324,18 @@ export default function ExpensesTab() {
           <button type="submit" className="btn-primary" style={{ width: '100%' }} disabled={saving}>
             {saving ? 'Saving...' : 'Add Expense'}
           </button>
-        </form>
+      </form>
+    </>
+  );
 
-        {/* Tag management */}
+  return (
+    <div className={narrow ? undefined : 'split'} style={narrow ? undefined : { '--split-col': '360px' }}>
+      {/* Form. On a phone this is a dialog behind the Add button, and tag management
+          is left out of it entirely — it is tidying-up, not part of recording one. */}
+      {!narrow && (
+      <div className="card">
+        {formFields}
+
         {isSuperAdmin && tags.length > 0 && (
           <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -344,6 +358,7 @@ export default function ExpensesTab() {
           </div>
         )}
       </div>
+      )}
 
       {/* Right side */}
       <div>
@@ -425,6 +440,9 @@ export default function ExpensesTab() {
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{filtered.length} records</span>
+              {narrow && (
+                <button className="btn-primary btn-sm" onClick={() => { setError(''); setFormOpen(true); }}>+ Add</button>
+              )}
               {filtered.length > 0 && (
                 <button
                   className="btn-ghost btn-sm"
@@ -508,6 +526,21 @@ export default function ExpensesTab() {
           )}
         </div>
       </div>
+
+      {narrow && formOpen && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 12,
+          }}
+          onClick={(e) => e.target === e.currentTarget && setFormOpen(false)}
+        >
+          <div className="card" style={{ width: 360, boxShadow: 'var(--shadow-md)', maxHeight: '88vh', overflowY: 'auto' }}>
+            {formFields}
+            <button className="btn-ghost" style={{ width: '100%', marginTop: 12 }} onClick={() => setFormOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
