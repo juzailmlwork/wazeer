@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import useIsNarrow from '../../hooks/useIsNarrow.js';
 import { exportSupplierPDF } from '../../utils/pdf.js';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -14,6 +15,11 @@ export default function SuppliersTab() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [detailSupplier, setDetailSupplier] = useState(null);
+  // On a phone the form is a dialog behind an Add button instead of a permanent pane,
+  // so the list is the first thing on screen. 900px matches where .split stops being
+  // two columns.
+  const narrow = useIsNarrow(900);
+  const [formOpen, setFormOpen] = useState(false);
 
   useEffect(() => { fetchSuppliers(); }, []);
 
@@ -40,6 +46,7 @@ export default function SuppliersTab() {
       }
       setForm({ name: '', phone: '' });
       setEditId(null);
+      setFormOpen(false);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save');
     } finally {
@@ -47,7 +54,22 @@ export default function SuppliersTab() {
     }
   };
 
+  const closeForm = () => {
+    setEditId(null);
+    setForm({ name: '', phone: '' });
+    setError('');
+    setFormOpen(false);
+  };
+
+  const openAddForm = () => {
+    setEditId(null);
+    setForm({ name: '', phone: '' });
+    setError('');
+    setFormOpen(true);
+  };
+
   const handleEdit = (s) => {
+    setFormOpen(true);
     setEditId(s._id);
     setForm({ name: s.name, phone: s.phone || '' });
     setError('');
@@ -63,12 +85,9 @@ export default function SuppliersTab() {
     }
   };
 
-  return (
+  const formFields = (
     <>
-      <div className="split" style={{ '--split-col': '320px' }}>
-        {/* Form */}
-        <div className="card">
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>
             {editId ? 'Edit Supplier' : 'Add Supplier'}
           </h2>
           <form onSubmit={handleSubmit}>
@@ -96,20 +115,32 @@ export default function SuppliersTab() {
               <button type="submit" className="btn-primary" style={{ flex: 1 }} disabled={saving}>
                 {saving ? 'Saving...' : editId ? 'Update' : 'Add Supplier'}
               </button>
-              {editId && (
-                <button type="button" className="btn-ghost" onClick={() => { setEditId(null); setForm({ name: '', phone: '' }); }}>
+              {(editId || narrow) && (
+                <button type="button" className="btn-ghost" onClick={closeForm}>
                   Cancel
                 </button>
               )}
             </div>
-          </form>
-        </div>
+      </form>
+    </>
+  );
+
+  return (
+    <>
+      {/* Two panes on a desktop; on a phone just the list, with the form behind Add. */}
+      <div className={narrow ? undefined : 'split'} style={narrow ? undefined : { '--split-col': '320px' }}>
+        {!narrow && <div className="card">{formFields}</div>}
 
         {/* Table */}
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2 style={{ fontSize: 16, fontWeight: 600 }}>Suppliers</h2>
-            <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{suppliers.length} suppliers</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{suppliers.length} suppliers</span>
+              {narrow && (
+                <button className="btn-primary btn-sm" onClick={openAddForm}>+ Add</button>
+              )}
+            </div>
           </div>
           {loading ? (
             <div className="empty-state">Loading...</div>
@@ -149,6 +180,20 @@ export default function SuppliersTab() {
       </div>
 
       {/* Detail Modal */}
+      {narrow && formOpen && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 12,
+          }}
+          onClick={(e) => e.target === e.currentTarget && closeForm()}
+        >
+          <div className="card" style={{ width: 360, boxShadow: 'var(--shadow-md)', maxHeight: '88vh', overflowY: 'auto' }}>
+            {formFields}
+          </div>
+        </div>
+      )}
+
       {detailSupplier && (
         <SupplierDetailModal
           supplier={detailSupplier}

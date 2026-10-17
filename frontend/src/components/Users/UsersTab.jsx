@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import useIsNarrow from '../../hooks/useIsNarrow.js';
 
 const ROLE_LABELS = { super_admin: 'Super Admin', normal_admin: 'Normal Admin' };
 const ROLE_COLORS = { super_admin: { bg: 'var(--primary-light)', color: 'var(--primary-dark)' }, normal_admin: { bg: '#f1f5f9', color: '#475569' } };
@@ -15,6 +16,10 @@ export default function UsersTab() {
   const [showPassword, setShowPassword] = useState(false);
   const [pwModal, setPwModal] = useState(null); // { id, username }
   const [notice, setNotice] = useState('');
+  // On a phone the create form is a dialog behind an Add button, so the list of users
+  // is the first thing on screen.
+  const narrow = useIsNarrow(900);
+  const [formOpen, setFormOpen] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [pwError, setPwError] = useState('');
@@ -31,6 +36,19 @@ export default function UsersTab() {
     }
   };
 
+  const closeForm = () => {
+    setForm({ username: '', name: '', password: '', role: 'normal_admin' });
+    setError('');
+    setFormOpen(false);
+  };
+
+  const openAddForm = () => {
+    setForm({ username: '', name: '', password: '', role: 'normal_admin' });
+    setError('');
+    setNotice('');
+    setFormOpen(true);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -39,6 +57,7 @@ export default function UsersTab() {
       const { data } = await api.post('/users', form);
       setUsers([...users, data]);
       setForm({ username: '', name: '', password: '', role: 'normal_admin' });
+      setFormOpen(false);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to create user');
     } finally {
@@ -88,12 +107,10 @@ export default function UsersTab() {
     }
   };
 
-  return (
-    <div className="split" style={{ '--split-col': '340px' }}>
-      {/* Create form */}
-      <div className="card">
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Create User</h2>
-        <form onSubmit={handleSubmit}>
+  const formFields = (
+    <>
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Create User</h2>
+      <form onSubmit={handleSubmit}>
           <div className="form-group" style={{ marginBottom: 12 }}>
             <label>Full Name</label>
             <input
@@ -162,17 +179,32 @@ export default function UsersTab() {
           </div>
 
           {error && <p className="error-msg" style={{ marginBottom: 10 }}>{error}</p>}
-          <button type="submit" className="btn-primary" style={{ width: '100%' }} disabled={saving}>
-            {saving ? 'Creating...' : 'Create User'}
-          </button>
-        </form>
-      </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="submit" className="btn-primary" style={{ flex: 1 }} disabled={saving}>
+              {saving ? 'Creating...' : 'Create User'}
+            </button>
+            {narrow && (
+              <button type="button" className="btn-ghost" onClick={closeForm}>Cancel</button>
+            )}
+          </div>
+      </form>
+    </>
+  );
+
+  return (
+    <div className={narrow ? undefined : 'split'} style={narrow ? undefined : { '--split-col': '340px' }}>
+      {!narrow && <div className="card">{formFields}</div>}
 
       {/* Users table */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ fontSize: 16, fontWeight: 600 }}>All Users</h2>
-          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{users.length} users</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{users.length} users</span>
+            {narrow && (
+              <button className="btn-primary btn-sm" onClick={openAddForm}>+ Add</button>
+            )}
+          </div>
         </div>
 
         {notice && (
@@ -243,6 +275,20 @@ export default function UsersTab() {
           </table>
         )}
       </div>
+
+      {narrow && formOpen && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 12,
+          }}
+          onClick={(e) => e.target === e.currentTarget && closeForm()}
+        >
+          <div className="card" style={{ width: 360, boxShadow: 'var(--shadow-md)', maxHeight: '88vh', overflowY: 'auto' }}>
+            {formFields}
+          </div>
+        </div>
+      )}
 
       {/* Change Password Modal */}
       {pwModal && (

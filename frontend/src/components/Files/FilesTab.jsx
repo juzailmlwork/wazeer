@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import api from '../../api/index.js';
+import useIsNarrow from '../../hooks/useIsNarrow.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,application/pdf';
@@ -36,6 +37,34 @@ function useAuthBlob(fileId, enabled = true) {
   }, [visible, fileId, enabled]);
 
   return [ref, url];
+}
+
+// Two of these on this tab, so it is worth the component.
+function Dialog({ children, onClose }) {
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex',
+        alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 12,
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="card" style={{ width: 360, boxShadow: 'var(--shadow-md)', maxHeight: '88vh', overflowY: 'auto' }}>
+        {children}
+        <button className="btn-ghost" style={{ width: '100%', marginTop: 12 }} onClick={onClose}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+function SearchGlyph({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" style={{ display: 'block' }} aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-3.5-3.5" />
+    </svg>
+  );
 }
 
 function PdfGlyph({ size = 40 }) {
@@ -93,6 +122,12 @@ export default function FilesTab() {
 
   const [newFolder, setNewFolder] = useState('');
   const [creatingFolder, setCreatingFolder] = useState(false);
+  // On a phone the two side panels become dialogs behind buttons, and the search box
+  // collapses to its icon, so the files themselves get the whole screen.
+  const narrow = useIsNarrow(900);
+  const [folderOpen, setFolderOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [openFile, setOpenFile] = useState(null);
 
@@ -129,6 +164,7 @@ export default function FilesTab() {
   useEffect(() => () => previews.forEach((u) => u && URL.revokeObjectURL(u)), [previews]);
 
   const resetUpload = () => {
+    setUploadOpen(false);
     setPicked([]);
     setUploadName('');
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -163,6 +199,7 @@ export default function FilesTab() {
     try {
       await api.post('/folders', { name, parent: currentId || ROOT });
       setNewFolder('');
+      setFolderOpen(false);
       await loadFolders();
     } catch (err) {
       alert(errMsg(err, 'Could not create the folder'));
@@ -197,24 +234,23 @@ export default function FilesTab() {
     setOpenFile(updated || null);
   };
 
-  return (
-    <div className="split" style={{ '--split-col': '320px' }}>
-      {/* Left: new folder + upload */}
-      <div>
-        <div className="card" style={{ marginBottom: 16 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>New Folder</h2>
-          <form onSubmit={handleCreateFolder} style={{ display: 'flex', gap: 6 }}>
+  const folderFields = (
+    <>
+      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>New Folder</h2>
+      <form onSubmit={handleCreateFolder} style={{ display: 'flex', gap: 6 }}>
             <input type="text" placeholder="Folder name" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} />
             <button type="submit" className="btn-primary" disabled={creatingFolder || !newFolder.trim()} style={{ whiteSpace: 'nowrap' }}>Create</button>
-          </form>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
-            Created inside <strong>{labelOf(currentId)}</strong>
-          </p>
-        </div>
+      </form>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+        Created inside <strong>{labelOf(currentId)}</strong>
+      </p>
+    </>
+  );
 
-        <div className="card">
-          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Add Files</h2>
-          <form onSubmit={handleUpload}>
+  const uploadFields = (
+    <>
+      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Add Files</h2>
+      <form onSubmit={handleUpload}>
             <div className="form-group" style={{ marginBottom: 12 }}>
               <input ref={fileInputRef} type="file" accept={ACCEPT} multiple onChange={(e) => setPicked(Array.from(e.target.files || []))} />
               <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Photos or PDFs · up to 15 MB each · 20 at a time</p>
@@ -243,21 +279,65 @@ export default function FilesTab() {
             <button type="submit" className="btn-primary" style={{ width: '100%' }} disabled={uploading || !picked.length}>
               {uploading ? 'Uploading…' : picked.length > 1 ? `Upload ${picked.length} Files` : 'Upload'}
             </button>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, textAlign: 'center' }}>
-              Into <strong>{labelOf(currentId)}</strong>
-            </p>
-          </form>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, textAlign: 'center' }}>
+          Into <strong>{labelOf(currentId)}</strong>
+        </p>
+      </form>
+    </>
+  );
+
+  return (
+    <div className={narrow ? undefined : 'split'} style={narrow ? undefined : { '--split-col': '320px' }}>
+      {/* Left: new folder + upload. On a phone these are dialogs instead. */}
+      {!narrow && (
+        <div>
+          <div className="card" style={{ marginBottom: 16 }}>{folderFields}</div>
+          <div className="card">{uploadFields}</div>
         </div>
-      </div>
+      )}
 
       {/* Right: browser */}
       <div>
         <div className="card" style={{ marginBottom: 16, padding: '14px 20px' }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input type="search" placeholder="Search all files by name…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: '1 1 240px' }} />
-            <span style={{ color: 'var(--text-muted)', fontSize: 13, whiteSpace: 'nowrap' }}>
-              {files.length} {files.length === 1 ? 'file' : 'files'}{!searching && subfolders.length ? ` · ${subfolders.length} folder${subfolders.length > 1 ? 's' : ''}` : ''}
-            </span>
+            {/* On a phone the search box is worth more as a tap target than as a
+                permanently open field: expanded it takes the whole row. */}
+            {(!narrow || searchOpen) && (
+              <input
+                type="search"
+                placeholder="Search all files by name…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                autoFocus={narrow && searchOpen}
+                style={{ flex: '1 1 240px' }}
+              />
+            )}
+            {narrow && searchOpen && (
+              <button
+                className="btn-ghost btn-sm"
+                onClick={() => { setSearch(''); setSearchOpen(false); }}
+                aria-label="Close search"
+              >
+                Cancel
+              </button>
+            )}
+            {narrow && !searchOpen && (
+              <>
+                <button className="btn-ghost btn-sm" onClick={() => setSearchOpen(true)} aria-label="Search files" title="Search files">
+                  <SearchGlyph />
+                </button>
+                <span style={{ color: 'var(--text-muted)', fontSize: 13, whiteSpace: 'nowrap', flex: 1 }}>
+                  {files.length} {files.length === 1 ? 'file' : 'files'}{!searching && subfolders.length ? ` · ${subfolders.length} folder${subfolders.length > 1 ? 's' : ''}` : ''}
+                </span>
+                <button className="btn-ghost btn-sm" onClick={() => setFolderOpen(true)} style={{ whiteSpace: 'nowrap' }}>+ Folder</button>
+                <button className="btn-primary btn-sm" onClick={() => setUploadOpen(true)} style={{ whiteSpace: 'nowrap' }}>+ Files</button>
+              </>
+            )}
+            {!narrow && (
+              <span style={{ color: 'var(--text-muted)', fontSize: 13, whiteSpace: 'nowrap' }}>
+                {files.length} {files.length === 1 ? 'file' : 'files'}{!searching && subfolders.length ? ` · ${subfolders.length} folder${subfolders.length > 1 ? 's' : ''}` : ''}
+              </span>
+            )}
           </div>
 
           {!searching && (
@@ -305,7 +385,11 @@ export default function FilesTab() {
         ) : files.length === 0 ? (
           <div className="card">
             <div className="empty-state">
-              {searching ? 'No files match your search.' : subfolders.length ? 'No files here — open a folder above.' : 'Nothing here yet. Add files on the left.'}
+              {searching
+                ? 'No files match your search.'
+                : subfolders.length
+                  ? 'No files here — open a folder above.'
+                  : narrow ? 'Nothing here yet. Tap + Files to add some.' : 'Nothing here yet. Add files on the left.'}
             </div>
           </div>
         ) : (
@@ -329,6 +413,14 @@ export default function FilesTab() {
           </div>
         )}
       </div>
+
+      {narrow && folderOpen && (
+        <Dialog onClose={() => setFolderOpen(false)}>{folderFields}</Dialog>
+      )}
+
+      {narrow && uploadOpen && (
+        <Dialog onClose={resetUpload}>{uploadFields}</Dialog>
+      )}
 
       {openFile && (
         <FileModal
