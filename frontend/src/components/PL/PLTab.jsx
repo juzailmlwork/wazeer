@@ -180,7 +180,7 @@ export default function PLTab() {
       </div>
 
       {/* Summary cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 24 }}>
+      <div className="stat-grid" style={{ marginBottom: 24 }}>
         <SummaryCard label="Sales Revenue" value={fmt(totalRevenue)} color="var(--primary-dark)" bg="var(--primary-light)" />
         <SummaryCard label="Other Income" value={fmt(totalIncome)} color="#0891b2" bg="#e0f2fe" />
         <SummaryCard label="Purchases Cost" value={fmt(totalPurchases)} color="#b45309" bg="#fef3c7" />

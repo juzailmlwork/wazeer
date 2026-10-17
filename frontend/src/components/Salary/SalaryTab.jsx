@@ -350,7 +350,7 @@ export default function SalaryTab() {
           </div>
 
           {/* Stats */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
             <div className="card" style={{ padding: '16px 20px' }}>
               <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--primary-dark)' }}>
                 {fmtHours(totalHours)}

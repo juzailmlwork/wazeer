@@ -89,7 +89,7 @@ export default function UsersTab() {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 20, alignItems: 'start' }}>
+    <div className="split" style={{ '--split-col': '340px' }}>
       {/* Create form */}
       <div className="card">
         <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Create User</h2>

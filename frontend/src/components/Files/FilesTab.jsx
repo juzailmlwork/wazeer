@@ -198,7 +198,7 @@ export default function FilesTab() {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 20, alignItems: 'start' }}>
+    <div className="split" style={{ '--split-col': '320px' }}>
       {/* Left: new folder + upload */}
       <div>
         <div className="card" style={{ marginBottom: 16 }}>
@@ -221,7 +221,7 @@ export default function FilesTab() {
             </div>
 
             {picked.length > 0 && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 6, marginBottom: 12 }}>
                 {picked.map((f, i) => (
                   <div key={`${f.name}-${i}`} title={f.name} style={{ aspectRatio: '1', borderRadius: 6, overflow: 'hidden', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {previews[i] ? <img src={previews[i]} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <PdfGlyph size={22} />}
@@ -404,7 +404,8 @@ function FileModal({ file, folders, labelOf, canDelete, onClose, onChanged }) {
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
     >
-      <div className="card" style={{ width: '100%', maxWidth: 1040, maxHeight: '100%', display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20, padding: 20, overflow: 'hidden' }}>
+      <div className="card" style={{ width: '100%', maxWidth: 1040, maxHeight: '100%', display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20, padding: 20, overflow: 'auto' }}
+      data-split-dialog>
         <Preview file={file} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

@@ -15,6 +15,7 @@ import SalaryTab from './Salary/SalaryTab.jsx';
 import StockTab from './Stock/StockTab.jsx';
 import FilesTab from './Files/FilesTab.jsx';
 import SettingsTab from './Settings/SettingsTab.jsx';
+import InstallPrompt from './InstallPrompt.jsx';
 
 const TABS = [
   { id: 'buy', label: '🛒 Buy' },
@@ -39,28 +40,14 @@ export default function Layout() {
   const [activeTab, setActiveTab] = useState('buy');
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <header style={{
-        background: 'white',
-        borderBottom: '1px solid var(--border)',
-        padding: '0 24px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        height: 56,
-        boxShadow: 'var(--shadow)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <div className="app">
+      <header className="app-header">
+        <div className="app-brand">
           <span style={{ fontSize: 22 }}>♻️</span>
-          <span style={{ fontWeight: 700, fontSize: 18, color: 'var(--primary)' }}>FWR Recyclers</span>
+          <span>FWR Recyclers</span>
         </div>
 
-        {/* Tabs */}
-        <nav style={{ display: 'flex', gap: 4 }}>
+        <nav className="tab-strip">
           {TABS.map((tab) => {
             if (tab.superAdminOnly && !isSuperAdmin) return null;
             return (
@@ -84,8 +71,7 @@ export default function Layout() {
           })}
         </nav>
 
-        {/* User */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="app-user">
           <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
             {user?.name}
             {user?.role === 'super_admin' && (
@@ -98,8 +84,7 @@ export default function Layout() {
         </div>
       </header>
 
-      {/* Content */}
-      <main style={{ flex: 1, padding: '24px', maxWidth: 1200, width: '100%', margin: '0 auto' }}>
+      <main className="app-main">
         {activeTab === 'buy' && <BuyTab />}
         {activeTab === 'sell' && <SellTab />}
         {activeTab === 'purchases' && <PurchasesTab />}
@@ -116,6 +101,8 @@ export default function Layout() {
         {activeTab === 'settings' && isSuperAdmin && <SettingsTab />}
         {activeTab === 'pl' && <PLTab />}
       </main>
+
+      <InstallPrompt />
     </div>
   );
 }

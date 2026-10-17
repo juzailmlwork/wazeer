@@ -65,7 +65,7 @@ export default function CustomersTab() {
 
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 20, alignItems: 'start' }}>
+      <div className="split" style={{ '--split-col': '320px' }}>
         {/* Form */}
         <div className="card">
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>
@@ -291,7 +291,7 @@ function CustomerDetailModal({ customer, onClose }) {
             </div>
           ) : (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: 20 }}>
                 <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 16px' }}>
                   <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--primary-dark)' }}>{monthSales.length}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Sales</div>

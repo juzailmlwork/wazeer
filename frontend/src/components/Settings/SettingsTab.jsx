@@ -135,7 +135,7 @@ export default function SettingsTab() {
       <Card title="Download Backup" subtitle="Everything in the database plus every uploaded image, as one .zip you can restore later.">
         {summaryError && <Notice kind="error">{summaryError}</Notice>}
         {summary && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+          <div className="stat-grid" style={{ marginBottom: 16 }}>
             <Stat value={totalRecords.toLocaleString()} label={`records in ${Object.keys(summary.collections).length} collections`} />
             <Stat value={summary.uploads.count.toLocaleString()} label="uploaded images" />
             <Stat value={fmtBytes(summary.uploads.bytes)} label="of images" />

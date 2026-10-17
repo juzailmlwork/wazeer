@@ -134,7 +134,7 @@ export default function BuyTab() {
   if (loading) return <div className="empty-state">Loading materials...</div>;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20, alignItems: 'start' }}>
+    <div className="split-rev" style={{ '--split-col': '340px' }}>
       {/* Materials Grid */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>

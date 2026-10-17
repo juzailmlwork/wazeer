@@ -170,7 +170,7 @@ export default function ExpensesTab() {
   );
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, alignItems: 'start' }}>
+    <div className="split" style={{ '--split-col': '360px' }}>
       {/* Form */}
       <div className="card">
         <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Add Expense</h2>
