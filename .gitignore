@@ -1,6 +1,13 @@
 node_modules/
 .env
+# Backups of .env hold the same secrets, and the ".env" line above does not match them.
+.env.bak-*
+.env.*.bak
 dist/
 .DS_Store
 backend/uploads/
 backend/backups/
+
+# MongoDB data (bind-mounted by docker-compose.yml). Never commit this, and never
+# `git clean -xdf` here — that deletes ignored files, which would take the database with it.
+mongodb/

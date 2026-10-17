@@ -1,0 +1,33 @@
+# MongoDB for wazeer (FWR Recyclers).
+#
+# The data lives in ./mongodb as a BIND MOUNT, not a Docker volume. That is the whole point of
+# this file: nothing about this database is stored inside Docker, so it survives
+# `docker compose down -v` and `docker system prune -a --volumes`.
+#
+#   docker compose up -d       start it
+#   docker compose down        stop it   (the data stays in ./mongodb)
+#   docker compose logs -f     watch it
+#
+# WARNING: ./mongodb is gitignored, and `git clean -xdf` deletes ignored files too. Running that
+# in this repo would delete the database. The nightly backup to S3 is the safety net — see
+# docs/BACKUP.md.
+#
+# /data/configdb is left unmounted on purpose: it is only used by sharded cluster config
+# servers, and is empty for this standalone mongod.
+services:
+  mongo:
+    image: mongo:7
+    container_name: wazeer-mongo
+    restart: unless-stopped
+    ports:
+      # Localhost only. The backend reaches it at 127.0.0.1:27018 (see backend/.env).
+      # Do not publish this on 0.0.0.0: this mongod runs without authentication.
+      - "127.0.0.1:27018:27017"
+    volumes:
+      # The image runs mongod as uid 999, so this directory must be owned by 999:999.
+      - ./mongodb:/data/db
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
