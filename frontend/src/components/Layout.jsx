@@ -43,7 +43,7 @@ export default function Layout() {
     <div className="app">
       <header className="app-header">
         <div className="app-brand">
-          <span style={{ fontSize: 22 }}>♻️</span>
+          <img src="/logo-mark.png" alt="" width={28} height={27} style={{ display: 'block' }} />
           <span>FWR Recyclers</span>
         </div>
 

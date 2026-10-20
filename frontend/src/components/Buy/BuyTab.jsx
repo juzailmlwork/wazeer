@@ -159,7 +159,7 @@ export default function BuyTab() {
                 className="material-card"
                 onClick={() => openModal(m)}
               >
-                <div style={{ fontSize: 28, marginBottom: 8 }}>♻️</div>
+                <img src="/logo-mark.png" alt="" width={30} height={29} style={{ display: 'block', margin: '0 auto 8px' }} />
                 <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', marginBottom: 4 }}>{m.name}</div>
                 <div style={{ fontSize: 12, color: 'var(--primary-dark)', fontWeight: 500 }}>
                   {Number(m.buyingPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })} / kg

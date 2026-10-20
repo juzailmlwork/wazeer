@@ -43,15 +43,12 @@ export default function Login() {
     }}>
       <div style={{ width: 360 }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{
-            width: 56, height: 56, background: 'var(--primary)', borderRadius: 16,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 16px', fontSize: 28,
-          }}>
-            ♻️
-          </div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)' }}>FWR Recyclers</h1>
-          <p style={{ color: 'var(--text-muted)', marginTop: 4 }}>Green Beyond Belief</p>
+          {/* The lockup carries the name and the tagline, so there is no heading here. */}
+          <img
+            src="/logo.png"
+            alt="FWR Recyclers — Green Beyond Belief"
+            style={{ width: '100%', maxWidth: 300, height: 'auto', display: 'block', margin: '0 auto' }}
+          />
         </div>
 
         <div className="card">
