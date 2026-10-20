@@ -15,6 +15,7 @@ import UsersTab from './Users/UsersTab.jsx';
 import SalaryTab from './Salary/SalaryTab.jsx';
 import StockTab from './Stock/StockTab.jsx';
 import FilesTab from './Files/FilesTab.jsx';
+import LedgerTab from './Ledger/LedgerTab.jsx';
 import SettingsTab from './Settings/SettingsTab.jsx';
 import InstallPrompt from './InstallPrompt.jsx';
 
@@ -32,6 +33,8 @@ const TABS = [
   { id: 'salary', label: '💼 Salary' },
   { id: 'stock', label: '📦 Stock' },
   { id: 'files', label: '🗂️ Files' },
+  { id: 'payable', label: '🧾 Payable' },
+  { id: 'receivable', label: '📥 Receivable' },
   { id: 'users', label: '👤 Users', superAdminOnly: true },
   { id: 'settings', label: '⚙️ Settings', superAdminOnly: true },
 ];
@@ -43,7 +46,7 @@ const TABS = [
 // off, at 1280 seven, at 1024 ten. On a phone none of this applies — the strip
 // scrolls, which is a familiar gesture there.
 const OVERFLOW_ORDER = [
-  'settings', 'users', 'files', 'stock', 'suppliers', 'customers',
+  'settings', 'users', 'receivable', 'payable', 'files', 'stock', 'suppliers', 'customers',
   'salary', 'items', 'pl', 'income', 'expenses', 'sales', 'purchases', 'sell',
 ];
 
@@ -233,6 +236,8 @@ export default function Layout() {
         {activeTab === 'salary' && <SalaryTab />}
         {activeTab === 'stock' && <StockTab />}
         {activeTab === 'files' && <FilesTab />}
+        {activeTab === 'payable' && <LedgerTab key="payable" ledger="payable" />}
+        {activeTab === 'receivable' && <LedgerTab key="receivable" ledger="receivable" />}
         {activeTab === 'users' && isSuperAdmin && <UsersTab />}
         {activeTab === 'settings' && isSuperAdmin && <SettingsTab />}
         {activeTab === 'pl' && <PLTab />}
