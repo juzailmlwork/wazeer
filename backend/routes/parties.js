@@ -22,6 +22,13 @@ function readLedger(req, res) {
   return ledger;
 }
 
+// Loads a party and checks it belongs to the ledger being asked about, so a payable id
+// cannot be used to read or write someone's receivable history.
+async function findParty(id, ledger) {
+  if (!mongoose.isValidObjectId(id)) return null;
+  return Party.findOne({ _id: id, ledger }).lean();
+}
+
 // Which column an entry falls in. The single source of truth for the convention described
 // in models/LedgerEntry.js.
 const sideOf = (ledger, kind) => {
@@ -43,21 +50,28 @@ const shape = (e) => ({
 });
 
 // GET /api/parties?ledger=payable&search=foo
-// The directory with this ledger's running totals attached, so the list can show each
-// person's pending figure without a request per row.
+// The directory for one ledger with each person's running totals attached, so the list
+// needs one round trip rather than one per row.
 router.get('/', auth, async (req, res) => {
   const ledger = readLedger(req, res);
   if (!ledger) return;
   try {
     const search = String(req.query.search || '').trim();
-    const filter = {};
+
+    // Every query starts with `ledger`, the leading field of both indexes, so none of them
+    // ever looks at the other tab's rows.
+    const filter = { ledger };
     if (search) {
-      const rx = new RegExp(escapeRegex(search), 'i');
-      filter.$or = [{ name: rx }, { phone: rx }];
+      const or = [{ nameLower: new RegExp(escapeRegex(search.toLowerCase())) }];
+      const digits = Party.normPhone(search);
+      if (digits) or.push({ phoneDigits: new RegExp(escapeRegex(digits)) });
+      filter.$or = or;
     }
 
     const [parties, totals] = await Promise.all([
-      Party.find(filter).sort({ name: 1 }).lean(),
+      // Sorted by the index, so MongoDB walks it in order instead of collecting and
+      // sorting the whole directory in memory.
+      Party.find(filter).sort({ nameLower: 1 }).lean(),
       LedgerEntry.aggregate([
         { $match: { ledger } },
         {
@@ -66,7 +80,6 @@ router.get('/', auth, async (req, res) => {
             charges: { $sum: { $cond: [{ $eq: ['$kind', 'charge'] }, '$amount', 0] } },
             payments: { $sum: { $cond: [{ $eq: ['$kind', 'payment'] }, '$amount', 0] } },
             entryCount: { $sum: 1 },
-            lastEntryDate: { $max: '$entryDate' },
           },
         },
       ]),
@@ -78,17 +91,18 @@ router.get('/', auth, async (req, res) => {
       const charges = round2(t?.charges || 0);
       const payments = round2(t?.payments || 0);
       return {
-        ...p,
+        _id: p._id,
+        name: p.name,
+        phone: p.phone,
         charges,
         payments,
         pending: round2(charges - payments),
         entryCount: t?.entryCount || 0,
-        lastEntryDate: t?.lastEntryDate || null,
       };
     });
 
-    // Ledger-wide figures come from the aggregation, not from `rows`, so a search does not
-    // change the total shown at the top of the tab.
+    // Ledger-wide figures come from the aggregation rather than from `rows`, so a search
+    // never changes the totals shown at the top of the tab.
     const allCharges = round2(totals.reduce((s, t) => s + t.charges, 0));
     const allPayments = round2(totals.reduce((s, t) => s + t.payments, 0));
 
@@ -100,7 +114,9 @@ router.get('/', auth, async (req, res) => {
         payments: allPayments,
         pending: round2(allCharges - allPayments),
         partiesWithActivity: totals.length,
-        partyCount: await Party.countDocuments(),
+        // Only worth a query while a search is narrowing the list; otherwise the list we
+        // just built is the answer.
+        partyCount: search ? await Party.countDocuments({ ledger }) : rows.length,
       },
     });
   } catch (err) {
@@ -109,61 +125,88 @@ router.get('/', auth, async (req, res) => {
 });
 
 router.post('/', auth, async (req, res) => {
+  const ledger = readLedger(req, res);
+  if (!ledger) return;
   try {
     const name = String(req.body.name || '').trim();
     const phone = String(req.body.phone || '').trim();
     if (!name) return res.status(400).json({ message: 'Name is required' });
     if (!phone) return res.status(400).json({ message: 'Phone number is required' });
-    const party = await Party.create({ name, phone });
+
+    const party = await Party.create({
+      ledger,
+      name,
+      phone,
+      nameLower: Party.normName(name),
+      phoneDigits: Party.normPhone(phone),
+    });
     res.status(201).json(party);
   } catch (err) {
     if (err.code === 11000) {
-      return res.status(400).json({ message: 'Someone with that name already exists' });
+      return res.status(400).json({ message: `Someone with that name is already on the ${ledger} list` });
     }
     res.status(400).json({ message: err.message });
   }
 });
 
 router.put('/:id', auth, async (req, res) => {
+  const ledger = readLedger(req, res);
+  if (!ledger) return;
   try {
     const update = {};
     if (req.body.name !== undefined) {
       const name = String(req.body.name).trim();
       if (!name) return res.status(400).json({ message: 'Name is required' });
       update.name = name;
+      update.nameLower = Party.normName(name);
     }
     if (req.body.phone !== undefined) {
       const phone = String(req.body.phone).trim();
       if (!phone) return res.status(400).json({ message: 'Phone number is required' });
       update.phone = phone;
+      update.phoneDigits = Party.normPhone(phone);
     }
-    const party = await Party.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(404).json({ message: 'Person not found' });
+    }
+    const party = await Party.findOneAndUpdate(
+      { _id: req.params.id, ledger },
+      update,
+      { new: true, runValidators: true }
+    );
     if (!party) return res.status(404).json({ message: 'Person not found' });
     res.json(party);
   } catch (err) {
     if (err.code === 11000) {
-      return res.status(400).json({ message: 'Someone with that name already exists' });
+      return res.status(400).json({ message: `Someone with that name is already on the ${ledger} list` });
     }
     res.status(400).json({ message: err.message });
   }
 });
 
-// Refuses while any record remains, on either ledger. Removing the person silently would
-// take a loan history with it, and a balance that vanishes is the one mistake in a ledger
-// nobody can reconstruct afterwards.
+// Refuses while any record remains. Removing the person silently would take a loan history
+// with it, and a balance that vanishes is the one mistake in a ledger nobody can
+// reconstruct afterwards.
 router.delete('/:id', auth, async (req, res) => {
+  const ledger = readLedger(req, res);
+  if (!ledger) return;
   if (req.user.role !== 'super_admin') {
     return res.status(403).json({ message: 'Only super admin can delete' });
   }
   try {
-    const entries = await LedgerEntry.countDocuments({ party: req.params.id });
-    if (entries > 0) {
+    const party = await findParty(req.params.id, ledger);
+    if (!party) return res.status(404).json({ message: 'Person not found' });
+
+    // Stops at the first hit rather than counting the whole history.
+    const hasEntries = await LedgerEntry.exists({ party: party._id });
+    if (hasEntries) {
+      const entries = await LedgerEntry.countDocuments({ party: party._id });
       return res.status(400).json({
         message: `This person still has ${entries} record${entries === 1 ? '' : 's'}. Delete the records first.`,
       });
     }
-    const party = await Party.findByIdAndDelete(req.params.id);
-    if (!party) return res.status(404).json({ message: 'Person not found' });
+
+    await Party.deleteOne({ _id: party._id });
     res.json({ message: 'Deleted successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -176,13 +219,11 @@ router.get('/:id/entries', auth, async (req, res) => {
   const ledger = readLedger(req, res);
   if (!ledger) return;
   try {
-    if (!mongoose.isValidObjectId(req.params.id)) {
-      return res.status(404).json({ message: 'Person not found' });
-    }
-    const party = await Party.findById(req.params.id).lean();
+    const party = await findParty(req.params.id, ledger);
     if (!party) return res.status(404).json({ message: 'Person not found' });
 
-    const entries = await LedgerEntry.find({ party: party._id, ledger })
+    // Matches the { party, entryDate, createdAt } index exactly, so this arrives sorted.
+    const entries = await LedgerEntry.find({ party: party._id })
       .sort({ entryDate: 1, createdAt: 1 })
       .lean();
 
@@ -190,8 +231,7 @@ router.get('/:id/entries', auth, async (req, res) => {
     let charges = 0;
     let payments = 0;
     const rows = entries.map((e) => {
-      const signed = e.kind === 'charge' ? e.amount : -e.amount;
-      balance = round2(balance + signed);
+      balance = round2(balance + (e.kind === 'charge' ? e.amount : -e.amount));
       if (e.kind === 'charge') charges = round2(charges + e.amount);
       else payments = round2(payments + e.amount);
       return { ...shape(e), balance };
@@ -221,10 +261,7 @@ router.post('/:id/entries', auth, async (req, res) => {
       return res.status(400).json({ message: 'Amount must be greater than zero' });
     }
 
-    if (!mongoose.isValidObjectId(req.params.id)) {
-      return res.status(404).json({ message: 'Person not found' });
-    }
-    const party = await Party.findById(req.params.id).lean();
+    const party = await findParty(req.params.id, ledger);
     if (!party) return res.status(404).json({ message: 'Person not found' });
 
     const entryDate = req.body.entryDate ? new Date(req.body.entryDate) : new Date();
@@ -234,7 +271,8 @@ router.post('/:id/entries', auth, async (req, res) => {
 
     const entry = await LedgerEntry.create({
       party: party._id,
-      ledger,
+      // From the party, never from the request, so the copy cannot disagree with it.
+      ledger: party.ledger,
       kind,
       amount: round2(amount),
       description: typeof description === 'string' ? description.trim() : '',
@@ -249,16 +287,19 @@ router.post('/:id/entries', auth, async (req, res) => {
 });
 
 router.delete('/:id/entries/:entryId', auth, async (req, res) => {
+  const ledger = readLedger(req, res);
+  if (!ledger) return;
   if (req.user.role !== 'super_admin') {
     return res.status(403).json({ message: 'Only super admin can delete' });
   }
   try {
-    if (!mongoose.isValidObjectId(req.params.entryId)) {
+    if (!mongoose.isValidObjectId(req.params.id) || !mongoose.isValidObjectId(req.params.entryId)) {
       return res.status(404).json({ message: 'Record not found' });
     }
     const entry = await LedgerEntry.findOneAndDelete({
       _id: req.params.entryId,
       party: req.params.id,
+      ledger,
     });
     if (!entry) return res.status(404).json({ message: 'Record not found' });
     res.json({ message: 'Deleted successfully' });

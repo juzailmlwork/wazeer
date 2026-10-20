@@ -1,10 +1,13 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import useIsNarrow from '../../hooks/useIsNarrow.js';
 
 // Both tabs are the same screen with the debit and credit sides swapped, so they share one
 // component. Everything that differs between them lives here.
+//
+// The two keep separate directories: a person added on Payable does not appear on
+// Receivable. Every request carries the ledger, and the server scopes the lookup to it.
 //
 // A payable is a liability: it rises on the credit side, and paying it back debits it.
 // A receivable is an asset: it rises on the debit side, and being paid back credits it.
@@ -23,7 +26,7 @@ const CONFIG = {
     chargesLabel: 'Total borrowed',
     paymentsLabel: 'Total repaid',
     accent: 'var(--danger)',
-    emptyHint: 'Add a person, then record what the business owes them.',
+    emptyHint: 'Nobody on the payable list yet. Add a person, then record what the business owes them.',
   },
   receivable: {
     heading: 'Accounts Receivable',
@@ -37,7 +40,7 @@ const CONFIG = {
     chargesLabel: 'Total lent',
     paymentsLabel: 'Total received',
     accent: 'var(--primary-dark)',
-    emptyHint: 'Add a person, then record what they owe the business.',
+    emptyHint: 'Nobody on the receivable list yet. Add a person, then record what they owe the business.',
   },
 };
 
@@ -70,9 +73,6 @@ export default function LedgerTab({ ledger }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  // The directory is shared with the other ledger, so by default only people who have
-  // records in this one are listed. Searching looks through everybody.
-  const [showAll, setShowAll] = useState(false);
 
   const [selectedId, setSelectedId] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -109,11 +109,8 @@ export default function LedgerTab({ ledger }) {
   }, [selectedId, ledger, reload]);
 
   const searching = Boolean(search.trim());
-  const visible = useMemo(
-    () => (searching || showAll ? parties : parties.filter((p) => p.entryCount > 0)),
-    [parties, searching, showAll]
-  );
-  const hiddenCount = parties.length - parties.filter((p) => p.entryCount > 0).length;
+  // Everyone the server returned belongs to this ledger, so the list shows all of them.
+  const visible = parties;
 
   const refresh = () => setReload((n) => n + 1);
 
@@ -128,9 +125,9 @@ export default function LedgerTab({ ledger }) {
     setSaving(true);
     try {
       if (personForm.id) {
-        await api.put(`/parties/${personForm.id}`, { name: personForm.name, phone: personForm.phone });
+        await api.put(`/parties/${personForm.id}`, { ledger, name: personForm.name, phone: personForm.phone });
       } else {
-        const { data } = await api.post('/parties', { name: personForm.name, phone: personForm.phone });
+        const { data } = await api.post('/parties', { ledger, name: personForm.name, phone: personForm.phone });
         setSelectedId(data._id);
       }
       setPersonForm(null);
@@ -145,7 +142,7 @@ export default function LedgerTab({ ledger }) {
   const deletePerson = async (p) => {
     if (!confirm(`Delete ${p.name}?`)) return;
     try {
-      await api.delete(`/parties/${p._id}`);
+      await api.delete(`/parties/${p._id}`, { params: { ledger } });
       if (selectedId === p._id) setSelectedId(null);
       refresh();
     } catch (err) {
@@ -184,7 +181,7 @@ export default function LedgerTab({ ledger }) {
   const deleteEntry = async (entry) => {
     if (!confirm('Delete this record?')) return;
     try {
-      await api.delete(`/parties/${selectedId}/entries/${entry._id}`);
+      await api.delete(`/parties/${selectedId}/entries/${entry._id}`, { params: { ledger } });
       refresh();
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to delete');
@@ -210,8 +207,10 @@ export default function LedgerTab({ ledger }) {
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{cfg.paymentsLabel}</div>
       </div>
       <div className="card" style={{ padding: '14px 18px' }}>
-        <div style={{ fontSize: 22, fontWeight: 700 }}>{summary ? summary.partiesWithActivity : '—'}</div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>People with a balance</div>
+        <div style={{ fontSize: 22, fontWeight: 700 }}>{summary ? summary.partyCount : '—'}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+          People{summary && summary.partiesWithActivity !== summary.partyCount ? ` · ${summary.partiesWithActivity} with a balance` : ''}
+        </div>
       </div>
     </div>
   );
@@ -316,15 +315,6 @@ export default function LedgerTab({ ledger }) {
         </table>
       )}
 
-      {!searching && hiddenCount > 0 && (
-        <div style={{ padding: '10px 18px', borderTop: '1px solid var(--border)' }}>
-          <button className="btn-ghost btn-sm" onClick={() => setShowAll((v) => !v)}>
-            {showAll
-              ? 'Show only people with records'
-              : `Show all people (${hiddenCount} more)`}
-          </button>
-        </div>
-      )}
     </div>
   );
 
