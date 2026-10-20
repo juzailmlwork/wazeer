@@ -1,17 +1,8 @@
 import { useState, useEffect } from 'react';
+import { subscribe, isStandalone, isIosSafari, canPrompt, promptInstall } from '../pwa/install.js';
 
 const DISMISSED_KEY = 'installPromptDismissedUntil';
 const SNOOZE_DAYS = 14;
-
-const isStandalone = () =>
-  window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-
-// iOS has no beforeinstallprompt, so Safari users get instructions instead of a button.
-const isIosSafari = () => {
-  const ua = window.navigator.userAgent;
-  const ios = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
-  return ios && /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
-};
 
 const snoozed = () => {
   try {
@@ -38,43 +29,25 @@ const snooze = () => {
  * sensible moment with our own wording, rather than leaving it to the browser's mini-infobar.
  */
 export default function InstallPrompt() {
-  const [deferred, setDeferred] = useState(null);
+  const [offer, setOffer] = useState(false);
   const [showIosHint, setShowIosHint] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
-    if (isStandalone() || snoozed()) return;
-
-    const onBeforeInstall = (e) => {
-      // Keep the browser's own banner away; we show our own.
-      e.preventDefault();
-      setDeferred(e);
-    };
-    const onInstalled = () => {
-      setDeferred(null);
-      setShowIosHint(false);
-    };
-
-    window.addEventListener('beforeinstallprompt', onBeforeInstall);
-    window.addEventListener('appinstalled', onInstalled);
-
+    if (isStandalone() || snoozed()) return undefined;
+    setOffer(canPrompt());
     if (isIosSafari()) setShowIosHint(true);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
-      window.removeEventListener('appinstalled', onInstalled);
-    };
+    // The event itself is captured in pwa/install.js, so the Settings card can use it too.
+    return subscribe(() => setOffer(canPrompt()));
   }, []);
 
   const install = async () => {
-    if (!deferred) return;
     setInstalling(true);
     try {
-      deferred.prompt();
-      const { outcome } = await deferred.userChoice;
-      // The event can only be used once, either way.
-      setDeferred(null);
+      const outcome = await promptInstall();
       if (outcome === 'dismissed') snooze();
+      setHidden(true);
     } finally {
       setInstalling(false);
     }
@@ -82,11 +55,11 @@ export default function InstallPrompt() {
 
   const dismiss = () => {
     snooze();
-    setDeferred(null);
-    setShowIosHint(false);
+    setHidden(true);
   };
 
-  if (!deferred && !showIosHint) return null;
+  const deferred = offer;
+  if (hidden || (!offer && !showIosHint)) return null;
 
   return (
     <div

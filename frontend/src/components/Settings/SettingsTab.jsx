@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/index.js';
+import InstallAppCard from '../InstallAppCard.jsx';
 
 const fmtBytes = (b) => {
   if (b >= 1024 ** 3) return `${(b / 1024 ** 3).toFixed(2)} GB`;
@@ -196,6 +197,10 @@ export default function SettingsTab() {
         )}
       </Card>
       )}
+
+      <Card title="Install App" subtitle="Add FWR Recyclers to this device so it opens like any other app, without the browser bar.">
+        <InstallAppCard />
+      </Card>
 
       <Card title="Remote Storage" subtitle="Keep a copy of your backup off this server.">
         {!remote ? (
