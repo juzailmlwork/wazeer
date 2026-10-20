@@ -228,18 +228,20 @@ tr:hover td { background: #f8fafc; }
   white-space: nowrap;
 }
 
-/* Scrolls sideways rather than wrapping: there are fifteen tabs, and they
-   overflow even a wide desktop window. The scrollbar is hidden because a
-   visible one under the tabs looks like a mistake. */
+/* On a desktop the strip takes the whole space between the brand and the user
+   menu. That matters for more than looks: the overflow calculation in Layout.jsx
+   measures this element, and a content-sized flex item would change width every
+   time a tab moved into More, which oscillates.
+   Overflow stays visible here so the More dropdown is not clipped; nothing
+   overflows anyway, because tabs move into the menu until they fit. */
 .tab-strip {
   display: flex;
   gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto;
+  min-width: 0;
 }
-.tab-strip::-webkit-scrollbar { display: none; }
-.tab-strip > button {
+.tab-strip > button,
+.tab-strip > div {
   flex: 0 0 auto;
   white-space: nowrap;
 }
@@ -289,13 +291,21 @@ tr:hover td { background: #f8fafc; }
   }
   .app-brand { order: 1; font-size: 16px; }
   .app-user  { order: 2; }
+  /* A phone scrolls the strip instead — a familiar gesture there, and it avoids
+     burying tabs behind a menu on the screen with least room. The scrollbar is
+     hidden because a visible one under the tabs reads as a mistake. */
   .tab-strip {
     order: 3;
     width: 100%;
+    flex: 0 0 auto;
     margin-top: 6px;
     padding: 6px 0;
     border-top: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
   }
+  .tab-strip::-webkit-scrollbar { display: none; }
 }
 
 @media (max-width: 760px) {
