@@ -41,6 +41,11 @@ const PERIODS = [
   { id: 'custom', label: 'Custom' },
 ];
 
+// A rejected purchase or sale never happened, so it must not reach the figures here.
+// Anything without a status predates rejection and is treated as pending, which — as
+// before — does still count.
+const counted = (r) => (r.status || 'pending') !== 'rejected';
+
 export default function PLTab() {
   const [transactions, setTransactions] = useState([]);
   const [sales, setSales] = useState([]);
@@ -85,11 +90,11 @@ export default function PLTab() {
   }, [period, customFrom, customTo]);
 
   const filteredTransactions = useMemo(
-    () => transactions.filter((tx) => inYard(tx, yard) && inRange(localDate(tx.createdAt), from, to)),
+    () => transactions.filter((tx) => counted(tx) && inYard(tx, yard) && inRange(localDate(tx.createdAt), from, to)),
     [transactions, from, to, yard]
   );
   const filteredSales = useMemo(
-    () => sales.filter((s) => inYard(s, yard) && inRange(localDate(s.createdAt), from, to)),
+    () => sales.filter((s) => counted(s) && inYard(s, yard) && inRange(localDate(s.createdAt), from, to)),
     [sales, from, to, yard]
   );
   const filteredExpenses = useMemo(

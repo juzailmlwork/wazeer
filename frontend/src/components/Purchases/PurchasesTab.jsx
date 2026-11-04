@@ -29,8 +29,21 @@ function inRange(dateStr, from, to) {
 const PERIODS = [
   { id: 'today', label: 'Today' },
   { id: 'month', label: 'This Month' },
+  { id: 'all', label: 'All Time' },
   { id: 'custom', label: 'Custom' },
 ];
+
+// A rejected record is kept rather than deleted, so the list needs a way to reach it —
+// and a way to see what is still waiting on a decision.
+const STATUSES = [
+  { id: '', label: 'All Statuses' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'approved', label: 'Approved' },
+  { id: 'rejected', label: 'Rejected' },
+];
+
+// Records written before rejection existed have no status field at all.
+const statusOf = (r) => r.status || 'pending';
 
 export default function PurchasesTab() {
   const { isSuperAdmin } = useAuth();
@@ -45,6 +58,7 @@ export default function PurchasesTab() {
   const [customTo, setCustomTo] = useState(today());
   const [expanded, setExpanded] = useState({});
   const [filterYard, setFilterYard] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
 
   useEffect(() => { fetchData(); }, []);
 
@@ -73,13 +87,13 @@ export default function PurchasesTab() {
 
   const handleApprove = async (id) => {
     const { data } = await api.patch(`/transactions/${id}/approve`);
-    setTransactions((prev) => prev.map((tx) => tx._id === id ? { ...tx, status: data.status } : tx));
+    setTransactions((prev) => prev.map((tx) => (tx._id === id ? { ...tx, ...data } : tx)));
   };
 
   const handleReject = async (id) => {
-    if (!window.confirm('Reject and delete this purchase record?')) return;
-    await api.delete(`/transactions/${id}`);
-    setTransactions((prev) => prev.filter((tx) => tx._id !== id));
+    if (!window.confirm('Reject this purchase? It stays on record and stops counting towards the totals.')) return;
+    const { data } = await api.patch(`/transactions/${id}/reject`);
+    setTransactions((prev) => prev.map((tx) => (tx._id === id ? { ...tx, ...data } : tx)));
   };
 
   const filtered = useMemo(() => {
@@ -98,10 +112,20 @@ export default function PurchasesTab() {
     const materialFiltered = filterMaterial
       ? supplierFiltered.filter((tx) => tx.items.some((item) => item.material === filterMaterial))
       : supplierFiltered;
-    return filterYard
+    const yardFiltered = filterYard
       ? materialFiltered.filter((tx) => (tx.yard || 'hospital') === filterYard)
       : materialFiltered;
-  }, [transactions, period, customFrom, customTo, filterSupplier, filterMaterial, filterYard]);
+    return filterStatus
+      ? yardFiltered.filter((tx) => statusOf(tx) === filterStatus)
+      : yardFiltered;
+  }, [transactions, period, customFrom, customTo, filterSupplier, filterMaterial, filterYard, filterStatus]);
+
+  // Counted across every period on purpose, not just the one on screen: something awaiting
+  // approval from last week is exactly what a date filter hides.
+  const pendingCount = useMemo(
+    () => transactions.filter((tx) => statusOf(tx) === 'pending').length,
+    [transactions]
+  );
 
   const selectedMaterial = useMemo(
     () => materials.find((m) => m._id === filterMaterial),
@@ -127,7 +151,7 @@ export default function PurchasesTab() {
     };
   }, [filtered, filterMaterial]);
 
-  const hasFilters = filterMaterial || filterSupplier || filterYard;
+  const hasFilters = filterMaterial || filterSupplier || filterYard || filterStatus;
 
   return (
     <div>
@@ -163,6 +187,10 @@ export default function PurchasesTab() {
           )}
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={{ width: 140 }}>
+              {STATUSES.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
+            </select>
+
             <select value={filterYard} onChange={(e) => setFilterYard(e.target.value)} style={{ width: 130 }}>
               <option value="">All Yards</option>
               <option value="hospital">Hospital</option>
@@ -186,7 +214,7 @@ export default function PurchasesTab() {
             />
 
             {hasFilters && (
-              <button className="btn-ghost btn-sm" onClick={() => { setFilterMaterial(''); setFilterSupplier(''); setFilterYard(''); }}>
+              <button className="btn-ghost btn-sm" onClick={() => { setFilterMaterial(''); setFilterSupplier(''); setFilterYard(''); setFilterStatus(''); }}>
                 Clear
               </button>
             )}
@@ -196,6 +224,14 @@ export default function PurchasesTab() {
 
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
+        {pendingCount > 0 && (
+          <StatCard
+            label="Awaiting approval · click to review"
+            value={pendingCount}
+            color="var(--warning)"
+            onClick={() => { setFilterStatus('pending'); setPeriod('all'); }}
+          />
+        )}
         <StatCard label="Transactions" value={filtered.length} color="var(--primary-dark)" />
         <StatCard
           label={filterMaterial ? `Total — ${selectedMaterial?.name}` : filterSupplier ? `Total — ${selectedSupplier?.name}` : 'Total Value'}
@@ -296,10 +332,11 @@ export default function PurchasesTab() {
                       </td>
                       <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{tx.createdBy || '—'}</td>
                       <td>
-                        <span className="badge" style={tx.status === 'approved'
-                          ? { background: '#dcfce7', color: '#15803d' }
+                        <span className="badge" style={
+                          statusOf(tx) === 'approved' ? { background: '#dcfce7', color: '#15803d' }
+                          : statusOf(tx) === 'rejected' ? { background: 'var(--danger-light)', color: 'var(--danger)' }
                           : { background: '#fef9c3', color: '#a16207' }}>
-                          {tx.status === 'approved' ? 'Approved' : 'Pending'}
+                          {statusOf(tx) === 'approved' ? 'Approved' : statusOf(tx) === 'rejected' ? 'Rejected' : 'Pending'}
                         </span>
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-dark)', whiteSpace: 'nowrap' }}>
@@ -312,10 +349,15 @@ export default function PurchasesTab() {
                       </td>
                       {isSuperAdmin && (
                         <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
-                          {tx.status === 'pending' ? (
+                          {statusOf(tx) === 'pending' ? (
                             <div style={{ display: 'flex', gap: 4 }}>
                               <button className="btn-primary btn-sm" onClick={() => handleApprove(tx._id)}>Approve</button>
                               <button className="btn-danger btn-sm" onClick={() => handleReject(tx._id)}>Reject</button>
+                            </div>
+                          ) : statusOf(tx) === 'rejected' ? (
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              <button className="btn-ghost btn-sm" onClick={() => handleApprove(tx._id)}>Approve</button>
+                              <button className="btn-danger btn-sm" onClick={() => handleDelete(tx._id)}>Delete</button>
                             </div>
                           ) : (
                             <button className="btn-danger btn-sm" onClick={() => handleDelete(tx._id)}>Delete</button>
@@ -374,9 +416,16 @@ export default function PurchasesTab() {
   );
 }
 
-function StatCard({ label, value, color }) {
+function StatCard({ label, value, color, onClick }) {
   return (
-    <div className="card" style={{ padding: '16px 20px' }}>
+    <div
+      className="card"
+      style={{ padding: '16px 20px', cursor: onClick ? 'pointer' : undefined }}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+    >
       <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{label}</div>
     </div>

@@ -29,8 +29,21 @@ function inRange(dateStr, from, to) {
 const PERIODS = [
   { id: 'today', label: 'Today' },
   { id: 'month', label: 'This Month' },
+  { id: 'all', label: 'All Time' },
   { id: 'custom', label: 'Custom' },
 ];
+
+// A rejected record is kept rather than deleted, so the list needs a way to reach it —
+// and a way to see what is still waiting on a decision.
+const STATUSES = [
+  { id: '', label: 'All Statuses' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'approved', label: 'Approved' },
+  { id: 'rejected', label: 'Rejected' },
+];
+
+// Records written before rejection existed have no status field at all.
+const statusOf = (r) => r.status || 'pending';
 
 export default function SalesTab() {
   const { isSuperAdmin } = useAuth();
@@ -45,6 +58,7 @@ export default function SalesTab() {
   const [customTo, setCustomTo] = useState(today());
   const [expanded, setExpanded] = useState({});
   const [filterYard, setFilterYard] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
 
   useEffect(() => { fetchData(); }, []);
 
@@ -73,13 +87,13 @@ export default function SalesTab() {
 
   const handleApprove = async (id) => {
     const { data } = await api.patch(`/sales/${id}/approve`);
-    setSales((prev) => prev.map((s) => s._id === id ? { ...s, status: data.status } : s));
+    setSales((prev) => prev.map((s) => (s._id === id ? { ...s, ...data } : s)));
   };
 
   const handleReject = async (id) => {
-    if (!window.confirm('Reject and delete this sale record?')) return;
-    await api.delete(`/sales/${id}`);
-    setSales((prev) => prev.filter((s) => s._id !== id));
+    if (!window.confirm('Reject this sale? It stays on record and stops counting towards the totals.')) return;
+    const { data } = await api.patch(`/sales/${id}/reject`);
+    setSales((prev) => prev.map((s) => (s._id === id ? { ...s, ...data } : s)));
   };
 
   const filtered = useMemo(() => {
@@ -97,10 +111,20 @@ export default function SalesTab() {
     const materialFiltered = filterMaterial
       ? customerFiltered.filter((sale) => sale.items.some((item) => item.material === filterMaterial))
       : customerFiltered;
-    return filterYard
+    const yardFiltered = filterYard
       ? materialFiltered.filter((sale) => (sale.yard || 'hospital') === filterYard)
       : materialFiltered;
-  }, [sales, period, customFrom, customTo, filterCustomer, filterMaterial, filterYard]);
+    return filterStatus
+      ? yardFiltered.filter((sale) => statusOf(sale) === filterStatus)
+      : yardFiltered;
+  }, [sales, period, customFrom, customTo, filterCustomer, filterMaterial, filterYard, filterStatus]);
+
+  // Counted across every period on purpose, not just the one on screen: something awaiting
+  // approval from last week is exactly what a date filter hides.
+  const pendingCount = useMemo(
+    () => sales.filter((sale) => statusOf(sale) === 'pending').length,
+    [sales]
+  );
 
   const selectedMaterial = useMemo(
     () => materials.find((m) => m._id === filterMaterial),
@@ -126,7 +150,7 @@ export default function SalesTab() {
     };
   }, [filtered, filterMaterial]);
 
-  const hasFilters = filterMaterial || filterCustomer || filterYard;
+  const hasFilters = filterMaterial || filterCustomer || filterYard || filterStatus;
 
   return (
     <div>
@@ -162,6 +186,10 @@ export default function SalesTab() {
           )}
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={{ width: 140 }}>
+              {STATUSES.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
+            </select>
+
             <select value={filterYard} onChange={(e) => setFilterYard(e.target.value)} style={{ width: 130 }}>
               <option value="">All Yards</option>
               <option value="hospital">Hospital</option>
@@ -185,7 +213,7 @@ export default function SalesTab() {
             />
 
             {hasFilters && (
-              <button className="btn-ghost btn-sm" onClick={() => { setFilterMaterial(''); setFilterCustomer(''); setFilterYard(''); }}>
+              <button className="btn-ghost btn-sm" onClick={() => { setFilterMaterial(''); setFilterCustomer(''); setFilterYard(''); setFilterStatus(''); }}>
                 Clear
               </button>
             )}
@@ -195,6 +223,14 @@ export default function SalesTab() {
 
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
+        {pendingCount > 0 && (
+          <StatCard
+            label="Awaiting approval · click to review"
+            value={pendingCount}
+            color="var(--warning)"
+            onClick={() => { setFilterStatus('pending'); setPeriod('all'); }}
+          />
+        )}
         <StatCard label="Sales" value={filtered.length} color="var(--primary-dark)" />
         <StatCard
           label={filterMaterial ? `Total — ${selectedMaterial?.name}` : filterCustomer ? `Total — ${selectedCustomer?.name}` : 'Total Value'}
@@ -295,10 +331,11 @@ export default function SalesTab() {
                       </td>
                       <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{sale.createdBy || '—'}</td>
                       <td>
-                        <span className="badge" style={sale.status === 'approved'
-                          ? { background: '#dcfce7', color: '#15803d' }
+                        <span className="badge" style={
+                          statusOf(sale) === 'approved' ? { background: '#dcfce7', color: '#15803d' }
+                          : statusOf(sale) === 'rejected' ? { background: 'var(--danger-light)', color: 'var(--danger)' }
                           : { background: '#fef9c3', color: '#a16207' }}>
-                          {sale.status === 'approved' ? 'Approved' : 'Pending'}
+                          {statusOf(sale) === 'approved' ? 'Approved' : statusOf(sale) === 'rejected' ? 'Rejected' : 'Pending'}
                         </span>
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-dark)', whiteSpace: 'nowrap' }}>
@@ -311,10 +348,15 @@ export default function SalesTab() {
                       </td>
                       {isSuperAdmin && (
                         <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
-                          {sale.status === 'pending' ? (
+                          {statusOf(sale) === 'pending' ? (
                             <div style={{ display: 'flex', gap: 4 }}>
                               <button className="btn-primary btn-sm" onClick={() => handleApprove(sale._id)}>Approve</button>
                               <button className="btn-danger btn-sm" onClick={() => handleReject(sale._id)}>Reject</button>
+                            </div>
+                          ) : statusOf(sale) === 'rejected' ? (
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              <button className="btn-ghost btn-sm" onClick={() => handleApprove(sale._id)}>Approve</button>
+                              <button className="btn-danger btn-sm" onClick={() => handleDelete(sale._id)}>Delete</button>
                             </div>
                           ) : (
                             <button className="btn-danger btn-sm" onClick={() => handleDelete(sale._id)}>Delete</button>
@@ -373,9 +415,16 @@ export default function SalesTab() {
   );
 }
 
-function StatCard({ label, value, color }) {
+function StatCard({ label, value, color, onClick }) {
   return (
-    <div className="card" style={{ padding: '16px 20px' }}>
+    <div
+      className="card"
+      style={{ padding: '16px 20px', cursor: onClick ? 'pointer' : undefined }}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+    >
       <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{label}</div>
     </div>

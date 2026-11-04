@@ -17,8 +17,11 @@ const saleSchema = new mongoose.Schema(
     grandTotal: { type: Number, required: true },
     createdBy: { type: String },
     yard: { type: String, enum: ['hospital', 'nayawala'], default: 'hospital' },
-    status: { type: String, enum: ['pending', 'approved'], default: 'pending' },
+    // 'rejected' is a state, not a deletion. A rejected sale stays on the books so
+    // the decision is auditable and reversible; removing it is a separate, explicit act.
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
     approvedBy: { type: String, default: null },
+    rejectedBy: { type: String, default: null },
   },
   { timestamps: true }
 );

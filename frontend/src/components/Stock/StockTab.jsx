@@ -25,6 +25,11 @@ const YARDS = [
 // Records from before yards existed count as hospital, as in the other tabs.
 const inYard = (r, yard) => !yard || (r.yard || 'hospital') === yard;
 
+// A rejected purchase or sale never happened, so it must not reach the figures here.
+// Anything without a status predates rejection and is treated as pending, which — as
+// before — does still count.
+const counted = (r) => (r.status || 'pending') !== 'rejected';
+
 export default function StockTab() {
   const { isSuperAdmin } = useAuth();
   const now = new Date();
@@ -91,6 +96,7 @@ export default function StockTab() {
     const thisSales = {};
 
     for (const tx of transactions) {
+      if (!counted(tx)) continue;
       const d = new Date(tx.createdAt);
       const bucket = d < monthStart ? prevPurchases : d < monthEnd ? thisPurchases : null;
       if (!bucket) continue;
@@ -101,6 +107,7 @@ export default function StockTab() {
     }
 
     for (const s of sales) {
+      if (!counted(s)) continue;
       const d = new Date(s.createdAt);
       const bucket = d < monthStart ? prevSales : d < monthEnd ? thisSales : null;
       if (!bucket) continue;
@@ -171,6 +178,7 @@ export default function StockTab() {
       items[name][`${kind}Value`] += value || 0;
     };
     const within = (r) => {
+      if (!counted(r)) return false;
       const d = localDate(r.createdAt);
       return d >= period.from && d <= period.to && inYard(r, reportYard);
     };

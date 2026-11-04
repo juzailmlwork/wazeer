@@ -32,7 +32,31 @@ router.post('/', auth, async (req, res) => {
 router.patch('/:id/approve', auth, async (req, res) => {
   if (req.user.role !== 'super_admin') return res.status(403).json({ message: 'Only super admin can approve' });
   try {
-    const doc = await Transaction.findByIdAndUpdate(req.params.id, { status: 'approved', approvedBy: req.user.username }, { new: true });
+    // Also reachable from 'rejected', so a rejection can be undone. Clearing rejectedBy
+    // keeps the record from claiming to be both approved and rejected.
+    const doc = await Transaction.findByIdAndUpdate(
+      req.params.id,
+      { status: 'approved', approvedBy: req.user.username, rejectedBy: null },
+      { new: true }
+    ).populate('supplier', 'name phone');
+    if (!doc) return res.status(404).json({ message: 'Record not found' });
+    res.json(doc);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Rejecting marks the record rather than deleting it: the figures stop counting it, but
+// the decision stays visible and can be reversed. Deleting is a separate call.
+router.patch('/:id/reject', auth, async (req, res) => {
+  if (req.user.role !== 'super_admin') return res.status(403).json({ message: 'Only super admin can reject' });
+  try {
+    const doc = await Transaction.findByIdAndUpdate(
+      req.params.id,
+      { status: 'rejected', rejectedBy: req.user.username, approvedBy: null },
+      { new: true }
+    ).populate('supplier', 'name phone');
+    if (!doc) return res.status(404).json({ message: 'Record not found' });
     res.json(doc);
   } catch (err) {
     res.status(500).json({ message: err.message });
