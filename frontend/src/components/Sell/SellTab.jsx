@@ -294,7 +294,11 @@ export default function SellTab() {
           }}
           onClick={(e) => e.target === e.currentTarget && closeModal()}
         >
-          <div className="card" style={{ width: 340, boxShadow: 'var(--shadow-md)' }}>
+          <form
+            className="card"
+            style={{ width: 340, boxShadow: 'var(--shadow-md)' }}
+            onSubmit={(e) => { e.preventDefault(); addToCart(); }}
+          >
             <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{modal.material.name}</h3>
             <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
               Rate: {Number(modal.material.sellingPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })} / kg
@@ -334,16 +338,18 @@ export default function SellTab() {
 
             <div style={{ display: 'flex', gap: 8 }}>
               <button
+                type="submit"
                 className="btn-primary"
                 style={{ flex: 1 }}
-                onClick={addToCart}
                 disabled={!weight || Number(weight) <= 0}
               >
                 Add to Cart
               </button>
-              <button className="btn-ghost" onClick={closeModal}>Cancel</button>
+              {/* Without an explicit type this would default to submit and Cancel would
+                  add the item instead of discarding it. */}
+              <button type="button" className="btn-ghost" onClick={closeModal}>Cancel</button>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </div>
