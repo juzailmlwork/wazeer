@@ -86,9 +86,6 @@ export default function Login() {
           </form>
         </div>
 
-        <p style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 16, fontSize: 12 }}>
-          superadmin / admin123 &nbsp;·&nbsp; admin / admin123
-        </p>
       </div>
     </div>
   );

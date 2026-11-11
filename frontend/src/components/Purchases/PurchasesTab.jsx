@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import React from 'react';
 import api from '../../api/index.js';
-import { exportPurchasesPDF } from '../../utils/pdf.js';
+import { exportPurchasesPDF, exportItemwisePDF } from '../../utils/pdf.js';
+import ApproveAllDialog from '../ApproveAllDialog.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import SearchableSelect from '../SearchableSelect.jsx';
 
@@ -59,6 +60,8 @@ export default function PurchasesTab() {
   const [expanded, setExpanded] = useState({});
   const [filterYard, setFilterYard] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [approveAllOpen, setApproveAllOpen] = useState(false);
+  const [approvingAll, setApprovingAll] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
 
@@ -127,6 +130,13 @@ export default function PurchasesTab() {
     [transactions]
   );
 
+  // Bulk approval acts on what is actually listed, never on the all-time tile count, so
+  // the set being approved is always the set on screen.
+  const pendingInView = useMemo(
+    () => filtered.filter((tx) => statusOf(tx) === 'pending'),
+    [filtered]
+  );
+
   const selectedMaterial = useMemo(
     () => materials.find((m) => m._id === filterMaterial),
     [materials, filterMaterial]
@@ -150,6 +160,38 @@ export default function PurchasesTab() {
       totalWeight: null,
     };
   }, [filtered, filterMaterial]);
+
+  const scopeLabel = useMemo(() => {
+    const bits = [
+      period === 'today' ? 'today'
+        : period === 'month' ? 'this month'
+        : period === 'all' ? 'all time'
+        : `${customFrom} to ${customTo}`,
+    ];
+    if (filterYard) bits.push(filterYard);
+    if (selectedSupplier) bits.push(selectedSupplier.name);
+    if (selectedMaterial) bits.push(selectedMaterial.name);
+    return bits.join(' · ');
+  }, [period, customFrom, customTo, filterYard, selectedSupplier, selectedMaterial]);
+
+  const approveAll = async () => {
+    setApprovingAll(true);
+    try {
+      const ids = pendingInView.map((tx) => tx._id);
+      const { data } = await api.patch('/transactions/approve-many', { ids });
+      setApproveAllOpen(false);
+      // Refetch rather than patching state: anything a second super admin decided in the
+      // meantime is left alone by the server, and guessing locally would misreport it.
+      await fetchData();
+      if (data.approved !== data.requested) {
+        alert(`Approved ${data.approved} of ${data.requested}. The rest had already been decided by someone else.`);
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Could not approve');
+    } finally {
+      setApprovingAll(false);
+    }
+  };
 
   const hasFilters = filterMaterial || filterSupplier || filterYard || filterStatus;
 
@@ -230,6 +272,16 @@ export default function PurchasesTab() {
             value={pendingCount}
             color="var(--warning)"
             onClick={() => { setFilterStatus('pending'); setPeriod('all'); }}
+            action={isSuperAdmin && (
+              <button
+                className="btn-primary btn-sm"
+                disabled={pendingInView.length === 0}
+                title={pendingInView.length === 0 ? 'Nothing pending in this view — widen the period' : undefined}
+                onClick={() => setApproveAllOpen(true)}
+              >
+                Approve all{pendingInView.length ? ` (${pendingInView.length})` : ''}
+              </button>
+            )}
           />
         )}
         <StatCard label="Transactions" value={filtered.length} color="var(--primary-dark)" />
@@ -263,6 +315,15 @@ export default function PurchasesTab() {
                 onClick={() => exportPurchasesPDF({ filtered, filterMaterial, selectedMaterial, filterSupplier, selectedSupplier, filterYard, period, totalValue, totalWeight })}
               >
                 ↓ PDF
+              </button>
+            )}
+            {filtered.length > 0 && (
+              <button
+                className="btn-ghost btn-sm"
+                title="Every item over this period, showing which ones moved"
+                onClick={() => exportItemwisePDF({ kind: 'purchase', filtered, materials, subtitle: scopeLabel, includeRejected: filterStatus === 'rejected' })}
+              >
+                ↓ Item PDF
               </button>
             )}
           </div>
@@ -412,11 +473,23 @@ export default function PurchasesTab() {
           </table>
         )}
       </div>
+
+      {approveAllOpen && (
+        <ApproveAllDialog
+          rows={pendingInView}
+          scope={scopeLabel}
+          noun="purchase"
+          partyKey="supplierName"
+          busy={approvingAll}
+          onConfirm={approveAll}
+          onCancel={() => setApproveAllOpen(false)}
+        />
+      )}
     </div>
   );
 }
 
-function StatCard({ label, value, color, onClick }) {
+function StatCard({ label, value, color, onClick, action }) {
   return (
     <div
       className="card"
@@ -426,8 +499,15 @@ function StatCard({ label, value, color, onClick }) {
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
     >
-      <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{label}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{label}</div>
+        </div>
+        {action && (
+          <div style={{ flex: '0 0 auto' }} onClick={(e) => e.stopPropagation()}>{action}</div>
+        )}
+      </div>
     </div>
   );
 }

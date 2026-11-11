@@ -86,6 +86,11 @@ export default function BuyTab() {
     closeModal();
   };
 
+  const clearCart = () => {
+    if (!window.confirm('Remove every item from this transaction?')) return;
+    setCart([]);
+  };
+
   const removeFromCart = (materialId) => {
     setCart((prev) => prev.filter((item) => item.materialId !== materialId));
   };
@@ -172,7 +177,12 @@ export default function BuyTab() {
 
       {/* Cart */}
       <div className="card" style={{ position: 'sticky', top: 76 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Transaction</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600 }}>Transaction</h2>
+          {cart.length > 0 && (
+            <button className="btn-ghost btn-sm" onClick={clearCart}>Clear</button>
+          )}
+        </div>
 
         {successMsg && (
           <div style={{ background: 'var(--primary-light)', color: 'var(--primary-dark)', padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13, fontWeight: 500 }}>
@@ -185,7 +195,7 @@ export default function BuyTab() {
             Click a material to add it
           </p>
         ) : (
-          <div style={{ marginBottom: 16 }}>
+          <div className="cart-items" style={{ marginBottom: 16 }}>
             {cart.map((item) => (
               <div key={item.materialId} style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>

@@ -47,6 +47,35 @@ The **Awaiting approval** tile counts pending records across every period, not t
 screen — a date filter is exactly what would hide something waiting since last week.
 Clicking it switches the list to Pending across All Time.
 
+## Approving in bulk
+
+The **Approve all** button sits on the Awaiting-approval tile and acts on the pending
+records **in the list as filtered**, never on the all-time tile count — so the set being
+approved is always the set on screen. The confirmation dialog names the count, the combined
+value, the filters in effect and the first few rows, because a period left set last week is
+exactly what would otherwise go unnoticed.
+
+`approve-many` takes explicit ids rather than a filter: the server changes exactly the rows
+the caller displayed, so a record added between loading the page and pressing the button
+cannot be swept up. Only rows still `pending` move, so a record another super admin decided
+in the meantime keeps their decision; the response reports `approved` against `requested`
+and the tab refetches rather than guessing. Batches are capped at 500.
+
+## PDF reports
+
+Both tabs export two reports, each honouring the current period and filters:
+
+- **PDF** — the detail list, one row per record, now with a Status column. Rejected rows
+  print in red: on paper there is no badge colour, and a rejected row must not read as a
+  purchase that happened.
+- **Item PDF** — every item in the catalogue over the period, **green where it was bought
+  or sold at least once and grey where it was not**. Listing only the items that moved
+  cannot answer "what is sitting untouched", which is what this report is for.
+
+The item-wise report excludes rejected records, matching P/L and Stock. The one exception is
+filtering the tab to Rejected, which is an explicit request to see exactly those; the
+subtitle says which of the two you are holding.
+
 ## API
 
 | Method | Path | Who |

@@ -48,6 +48,23 @@ function addStatRow(doc, stats, y, pageWidth = 210) {
   return y + 24;
 }
 
+const REJECTED_TEXT = [185, 28, 28];
+
+const statusLabel = (r) => {
+  const st = r.status || 'pending';
+  return st.charAt(0).toUpperCase() + st.slice(1);
+};
+
+// Printed on paper there is no badge colour to rely on, so a rejected row is reddened
+// outright — otherwise it reads as a purchase that happened.
+const markRejected = (data) => {
+  if (data.section !== 'body') return;
+  const row = data.table.body[data.row.index];
+  const cells = row && row.cells;
+  const statusCell = cells && Object.values(cells).find((c) => c.text && String(c.text).includes('Rejected'));
+  if (statusCell) data.cell.styles.textColor = REJECTED_TEXT;
+};
+
 export function exportPurchasesPDF({ filtered, filterMaterial, selectedMaterial, filterSupplier, selectedSupplier, filterYard, period, totalValue, totalWeight }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
 
@@ -72,7 +89,7 @@ export function exportPurchasesPDF({ filtered, filterMaterial, selectedMaterial,
 
   autoTable(doc, {
     startY: y,
-    head: [['Date', 'Supplier', 'Items', 'Created By', 'Total']],
+    head: [['Date', 'Supplier', 'Items', 'Created By', 'Status', 'Total']],
     body: filtered.map((tx) => {
       const matchedItem = filterMaterial ? tx.items.find((item) => item.material === filterMaterial) : null;
       const displayTotal = matchedItem ? matchedItem.totalPrice : tx.grandTotal;
@@ -81,14 +98,16 @@ export function exportPurchasesPDF({ filtered, filterMaterial, selectedMaterial,
         tx.supplierName || '—',
         tx.items.map((i) => i.materialName).join(', '),
         tx.createdBy || '—',
+        statusLabel(tx),
         Number(displayTotal).toLocaleString('en-US', { minimumFractionDigits: 2 }),
       ];
     }),
     headStyles: { fillColor: BRAND_COLOR, fontSize: 9, fontStyle: 'bold' },
     bodyStyles: { fontSize: 8.5 },
     alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: { 4: { halign: 'right', fontStyle: 'bold' } },
+    columnStyles: { 5: { halign: 'right', fontStyle: 'bold' } },
     margin: { left: 14, right: 14 },
+    didParseCell: markRejected,
   });
 
   doc.save(`purchases-report-${new Date().toISOString().slice(0, 10)}.pdf`);
@@ -118,7 +137,7 @@ export function exportSalesPDF({ filtered, filterMaterial, selectedMaterial, fil
 
   autoTable(doc, {
     startY: y,
-    head: [['Date', 'Customer', 'Yard', 'Items', 'Created By', 'Total']],
+    head: [['Date', 'Customer', 'Yard', 'Items', 'Created By', 'Status', 'Total']],
     body: filtered.map((sale) => {
       const matchedItem = filterMaterial ? sale.items.find((item) => item.material === filterMaterial) : null;
       const displayTotal = matchedItem ? matchedItem.totalPrice : sale.grandTotal;
@@ -128,17 +147,147 @@ export function exportSalesPDF({ filtered, filterMaterial, selectedMaterial, fil
         sale.yard || 'hospital',
         sale.items.map((i) => i.materialName).join(', '),
         sale.createdBy || '—',
+        statusLabel(sale),
         Number(displayTotal).toLocaleString('en-US', { minimumFractionDigits: 2 }),
       ];
     }),
     headStyles: { fillColor: BRAND_COLOR, fontSize: 9, fontStyle: 'bold' },
     bodyStyles: { fontSize: 8.5 },
     alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: { 5: { halign: 'right', fontStyle: 'bold' } },
+    columnStyles: { 6: { halign: 'right', fontStyle: 'bold' } },
     margin: { left: 14, right: 14 },
+    didParseCell: markRejected,
   });
 
   doc.save(`sales-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+/* ============================================================
+   Item-wise report
+   ============================================================ */
+
+const ACTIVE_FILL = [236, 253, 245];   // pale green — this item moved
+const ACTIVE_TEXT = [21, 128, 61];
+const IDLE_TEXT = [150, 150, 150];     // grey — nothing bought or sold
+
+// Rolls the filtered records up per material. Keyed on the material id where there is
+// one so a renamed item does not split into two lines; line items whose material was
+// deleted fall back to the name they were saved with.
+function rollUpByItem(records) {
+  const totals = new Map();
+  records.forEach((r) => {
+    (r.items || []).forEach((i) => {
+      const key = i.material ? String(i.material) : `name:${i.materialName || '—'}`;
+      const row = totals.get(key) || { key, name: i.materialName || '—', entries: 0, weight: 0, value: 0 };
+      row.entries += 1;
+      row.weight += Number(i.weight) || 0;
+      row.value += Number(i.totalPrice) || 0;
+      totals.set(key, row);
+    });
+  });
+  return totals;
+}
+
+/**
+ * Every item in the catalogue over the chosen period, whether it moved or not.
+ *
+ * The point of the report is the contrast: an item with at least one purchase or sale is
+ * printed in green, one with none in grey. A list of only the items that moved cannot
+ * answer "what is sitting untouched", which is the question this is for.
+ */
+export function exportItemwisePDF({ kind, filtered, materials, subtitle, includeRejected = false }) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const isSale = kind === 'sale';
+  const verb = isSale ? 'sold' : 'purchased';
+
+  // A rejected record never happened, so it must not add weight or value here — the same
+  // rule P/L and Stock follow. The exception is someone deliberately filtering to
+  // Rejected, who is asking to see exactly those.
+  const records = includeRejected
+    ? filtered
+    : filtered.filter((r) => (r.status || 'pending') !== 'rejected');
+
+  addHeader(doc, `${isSale ? 'Sales' : 'Purchases'} — Item-wise Report`,
+    [subtitle, includeRejected ? 'rejected only' : 'rejected excluded'].filter(Boolean).join('  ·  '));
+
+  const totals = rollUpByItem(records);
+
+  // Start from the catalogue so untouched items appear, then add anything traded whose
+  // material has since been deleted.
+  const seen = new Set();
+  const rows = (materials || []).map((m) => {
+    const hit = totals.get(String(m._id));
+    if (hit) seen.add(String(m._id));
+    return hit
+      ? { ...hit, name: m.name }
+      : { key: String(m._id), name: m.name, entries: 0, weight: 0, value: 0 };
+  });
+  totals.forEach((row, key) => { if (!seen.has(key)) rows.push(row); });
+
+  // Busiest first, then the untouched ones alphabetically.
+  const active = rows.filter((r) => r.entries > 0).sort((a, b) => b.value - a.value);
+  const idle = rows.filter((r) => r.entries === 0).sort((a, b) => a.name.localeCompare(b.name));
+  const ordered = [...active, ...idle];
+
+  const sumWeight = active.reduce((n, r) => n + r.weight, 0);
+  const sumValue = active.reduce((n, r) => n + r.value, 0);
+
+  let y = addStatRow(doc, [
+    { label: `Items ${verb}`, value: `${active.length} of ${ordered.length}` },
+    { label: 'Total Weight', value: `${sumWeight.toLocaleString('en-US', { minimumFractionDigits: 2 })} kg` },
+    { label: 'Total Value', value: sumValue.toLocaleString('en-US', { minimumFractionDigits: 2 }) },
+  ], 40);
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...ACTIVE_TEXT);
+  doc.text(includeRejected
+    ? 'Green: appears in a rejected record'
+    : `Green: ${verb} at least once in this period`, 14, y);
+  doc.setTextColor(...IDLE_TEXT);
+  doc.text(includeRejected ? 'Grey: does not' : `Grey: not ${verb} at all`, 80, y);
+  y += 5;
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Item', 'Entries', 'Weight (kg)', 'Value']],
+    body: ordered.map((r) => [
+      r.name,
+      r.entries || '—',
+      r.entries ? r.weight.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '—',
+      r.entries ? r.value.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '—',
+    ]),
+    foot: [[
+      'Total',
+      active.reduce((n, r) => n + r.entries, 0),
+      sumWeight.toLocaleString('en-US', { minimumFractionDigits: 2 }),
+      sumValue.toLocaleString('en-US', { minimumFractionDigits: 2 }),
+    ]],
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 9, fontStyle: 'bold' },
+    footStyles: { fillColor: [240, 243, 246], textColor: DARK, fontStyle: 'bold', fontSize: 9 },
+    bodyStyles: { fontSize: 8.5 },
+    columnStyles: {
+      1: { halign: 'right' },
+      2: { halign: 'right' },
+      3: { halign: 'right', fontStyle: 'bold' },
+    },
+    margin: { left: 14, right: 14 },
+    // alternateRowStyles would fight the green/grey split, so the rows are coloured here.
+    didParseCell: (data) => {
+      if (data.section === 'head' && data.column.index > 0) {
+        data.cell.styles.halign = 'right';
+      }
+      if (data.section !== 'body') return;
+      if (data.row.index < active.length) {
+        data.cell.styles.fillColor = ACTIVE_FILL;
+        data.cell.styles.textColor = data.column.index === 0 ? DARK : ACTIVE_TEXT;
+      } else {
+        data.cell.styles.textColor = IDLE_TEXT;
+      }
+    },
+  });
+
+  doc.save(`${isSale ? 'sales' : 'purchases'}-itemwise-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 export async function exportSalaryPDF({ employee, month, year, apiGet }) {

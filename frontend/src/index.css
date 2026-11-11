@@ -361,6 +361,18 @@ tr:hover td { background: #f8fafc; }
   .split-rev > :last-child { order: -1; }
 }
 
+/* The added-items list is the only part of the transaction panel that grows without
+   limit. Capping it keeps the Yard/Date/Supplier fields and the Complete button in
+   view on a desktop, and on a narrow window — where the panel sits above the material
+   grid — stops four or five items from burying the thing you add them with. */
+.cart-items {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+@media (max-width: 900px) {
+  .cart-items { max-height: 30vh; }
+}
+
 /* Running as an installed app: no browser chrome to scroll away, so keep the
    bounce from making the header detach. */
 @media (display-mode: standalone) {

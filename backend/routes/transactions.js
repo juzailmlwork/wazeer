@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const Transaction = require('../models/Transaction');
 const auth = require('../middleware/auth');
@@ -41,6 +42,31 @@ router.patch('/:id/approve', auth, async (req, res) => {
     ).populate('supplier', 'name phone');
     if (!doc) return res.status(404).json({ message: 'Record not found' });
     res.json(doc);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Approves a specific list of records in one call.
+//
+// Takes explicit ids rather than a filter: the caller approves exactly the rows it showed
+// the user and nothing else, so a record added between loading the page and pressing the
+// button cannot be swept up in it.
+router.patch('/approve-many', auth, async (req, res) => {
+  if (req.user.role !== 'super_admin') return res.status(403).json({ message: 'Only super admin can approve' });
+  try {
+    const ids = Array.isArray(req.body.ids) ? req.body.ids : [];
+    const valid = ids.filter((id) => mongoose.isValidObjectId(id));
+    if (!valid.length) return res.status(400).json({ message: 'No records given to approve' });
+    if (valid.length > 500) return res.status(400).json({ message: 'Too many records in one go — narrow the filter first' });
+
+    // Only pending ones move. Re-sending an id that has since been approved or rejected
+    // by someone else leaves it alone instead of overriding their decision.
+    const result = await Transaction.updateMany(
+      { _id: { $in: valid }, status: 'pending' },
+      { status: 'approved', approvedBy: req.user.username, rejectedBy: null }
+    );
+    res.json({ approved: result.modifiedCount, requested: valid.length });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
