@@ -1,12 +1,19 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import useIsNarrow from '../../hooks/useIsNarrow.js';
 
 export default function BuyTab() {
   const { user } = useAuth();
   const [materials, setMaterials] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [cart, setCart] = useState([]);
+  // On a phone this panel sits above the material grid, so it starts collapsed and the
+  // bar carries the running count and total. On a desktop it is a side panel that blocks
+  // nothing, so it always stays open and the toggle is not rendered at all.
+  const narrow = useIsNarrow(900);
+  const [cartCollapsed, setCartCollapsed] = useState(true);
+  const showCart = !narrow || !cartCollapsed;
   const [selectedSupplier, setSelectedSupplier] = useState('');
   const [modal, setModal] = useState(null);
   const [weight, setWeight] = useState('');
@@ -177,12 +184,38 @@ export default function BuyTab() {
 
       {/* Cart */}
       <div className="card" style={{ position: 'sticky', top: 76 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600 }}>Transaction</h2>
-          {cart.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: showCart ? 16 : 0 }}>
+          {narrow ? (
+            <button
+              type="button"
+              onClick={() => setCartCollapsed((v) => !v)}
+              aria-expanded={!cartCollapsed}
+              style={{
+                flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8,
+                background: 'none', border: 'none', padding: 0, textAlign: 'left',
+              }}
+            >
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', transition: 'transform 0.15s', transform: cartCollapsed ? 'none' : 'rotate(90deg)' }}>▶</span>
+              <span style={{ fontSize: 16, fontWeight: 600 }}>Transaction</span>
+              {cart.length > 0 && (
+                <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  {cart.length} item{cart.length === 1 ? '' : 's'}{' · '}
+                  <strong style={{ color: 'var(--primary-dark)' }}>
+                    {grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </strong>
+                </span>
+              )}
+            </button>
+          ) : (
+            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Transaction</h2>
+          )}
+          {showCart && cart.length > 0 && (
             <button className="btn-ghost btn-sm" onClick={clearCart}>Clear</button>
           )}
         </div>
+
+        {showCart && (
+          <>
 
         {successMsg && (
           <div style={{ background: 'var(--primary-light)', color: 'var(--primary-dark)', padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13, fontWeight: 500 }}>
@@ -283,6 +316,8 @@ export default function BuyTab() {
         >
           {saving ? 'Processing...' : 'Complete Transaction'}
         </button>
+          </>
+        )}
       </div>
 
       {/* Weight Entry Modal */}
