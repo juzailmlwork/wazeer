@@ -59,6 +59,7 @@ export default function ExpensesTab() {
   const [customTo, setCustomTo] = useState(todayStr());
   const [filterTag, setFilterTag] = useState('');
   const [filterYard, setFilterYard] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
   const [approveAllOpen, setApproveAllOpen] = useState(false);
   const [approvingAll, setApprovingAll] = useState(false);
 
@@ -166,9 +167,10 @@ export default function ExpensesTab() {
       }
       if (filterYard && e.yard !== filterYard) return false;
       if (filterTag && !e.tags?.some((t) => t._id === filterTag)) return false;
+      if (filterStatus && (e.status || 'pending') !== filterStatus) return false;
       return true;
     });
-  }, [expenses, period, customFrom, customTo, filterTag, filterYard]);
+  }, [expenses, period, customFrom, customTo, filterTag, filterYard, filterStatus]);
 
   const totalFiltered = useMemo(
     () => filtered.reduce((sum, e) => sum + e.amount, 0),
@@ -207,10 +209,16 @@ export default function ExpensesTab() {
         : period === 'all' ? 'all time'
         : `${customFrom} to ${customTo}`,
     ];
+    if (filterStatus) bits.push(filterStatus);
     if (filterYard) bits.push(filterYard);
     if (selectedTagObj) bits.push(selectedTagObj.name);
     return bits.join(' · ');
-  }, [period, customFrom, customTo, filterYard, selectedTagObj]);
+  }, [period, customFrom, customTo, filterStatus, filterYard, selectedTagObj]);
+
+  // The tile is a shortcut to the queue, so it narrows to pending across every period
+  // rather than just widening the dates, which would bury the few pending rows in all
+  // the approved ones.
+  const showPending = () => { setFilterStatus('pending'); setPeriod('all'); };
 
   const approveAll = async () => {
     setApprovingAll(true);
@@ -459,6 +467,12 @@ export default function ExpensesTab() {
             )}
 
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+              {/* Status filter */}
+              <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={{ width: 150 }}>
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+              </select>
               {/* Yard filter */}
               <select value={filterYard} onChange={(e) => setFilterYard(e.target.value)} style={{ width: 140 }}>
                 <option value="">All Yards</option>
@@ -484,16 +498,16 @@ export default function ExpensesTab() {
             <div
               className="card"
               style={{ padding: '16px 20px', cursor: 'pointer' }}
-              onClick={() => setPeriod('all')}
+              onClick={showPending}
               role="button"
               tabIndex={0}
-              onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setPeriod('all'); } }}
+              onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); showPending(); } }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--warning)' }}>{pendingCount}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                    Awaiting approval{isSuperAdmin ? ' · click to show all' : ''}
+                    Awaiting approval · click to review
                   </div>
                 </div>
                 {isSuperAdmin && (
@@ -501,7 +515,7 @@ export default function ExpensesTab() {
                     <button
                       className="btn-primary btn-sm"
                       disabled={pendingInView.length === 0}
-                      title={pendingInView.length === 0 ? 'Nothing pending in this view — widen the period' : undefined}
+                      title={pendingInView.length === 0 ? 'Nothing pending in this view — clear the filters or widen the period' : undefined}
                       onClick={() => setApproveAllOpen(true)}
                     >
                       Approve all{pendingInView.length ? ` (${pendingInView.length})` : ''}
