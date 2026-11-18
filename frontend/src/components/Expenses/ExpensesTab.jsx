@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/index.js';
 import useIsNarrow from '../../hooks/useIsNarrow.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import ApproveAllDialog from '../ApproveAllDialog.jsx';
 import { exportExpensesPDF } from '../../utils/pdf.js';
 
 const TAG_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#8b5cf6', '#06b6d4'];
@@ -58,6 +59,8 @@ export default function ExpensesTab() {
   const [customTo, setCustomTo] = useState(todayStr());
   const [filterTag, setFilterTag] = useState('');
   const [filterYard, setFilterYard] = useState('');
+  const [approveAllOpen, setApproveAllOpen] = useState(false);
+  const [approvingAll, setApprovingAll] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
 
@@ -175,6 +178,58 @@ export default function ExpensesTab() {
     () => tags.find((t) => t._id === filterTag),
     [tags, filterTag]
   );
+
+  // How many records carry each tag. The whole list is already in memory, so this costs
+  // nothing and lets the × be disabled before the server has to refuse the delete.
+  const tagUsage = useMemo(() => {
+    const counts = new Map();
+    expenses.forEach((rec) => (rec.tags || []).forEach((t) => {
+      const id = t?._id || t;
+      counts.set(id, (counts.get(id) || 0) + 1);
+    }));
+    return counts;
+  }, [expenses]);
+
+  const isPending = (rec) => (rec.status || 'pending') === 'pending';
+
+  // Counted across every period on purpose, not just the one on screen: something awaiting
+  // approval from last week is exactly what a date filter hides.
+  const pendingCount = useMemo(() => expenses.filter(isPending).length, [expenses]);
+
+  // Bulk approval acts on what is actually listed, never on the all-time tile count, so
+  // the set being approved is always the set on screen.
+  const pendingInView = useMemo(() => filtered.filter(isPending), [filtered]);
+
+  const scopeLabel = useMemo(() => {
+    const bits = [
+      period === 'today' ? 'today'
+        : period === 'month' ? 'this month'
+        : period === 'all' ? 'all time'
+        : `${customFrom} to ${customTo}`,
+    ];
+    if (filterYard) bits.push(filterYard);
+    if (selectedTagObj) bits.push(selectedTagObj.name);
+    return bits.join(' · ');
+  }, [period, customFrom, customTo, filterYard, selectedTagObj]);
+
+  const approveAll = async () => {
+    setApprovingAll(true);
+    try {
+      const ids = pendingInView.map((rec) => rec._id);
+      const { data } = await api.patch('/expenses/approve-many', { ids });
+      setApproveAllOpen(false);
+      // Refetch rather than patching state: anything a second super admin decided in the
+      // meantime is left alone by the server, and guessing locally would misreport it.
+      await fetchData();
+      if (data.approved !== data.requested) {
+        alert(`Approved ${data.approved} of ${data.requested}. The rest had already been decided by someone else.`);
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Could not approve');
+    } finally {
+      setApprovingAll(false);
+    }
+  };
 
   const formFields = (
     <>
@@ -342,18 +397,28 @@ export default function ExpensesTab() {
               Manage Tags
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {tags.map((tag) => (
+              {tags.map((tag) => {
+                const used = tagUsage.get(tag._id) || 0;
+                return (
                 <span key={tag._id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 999, background: tag.color + '20', color: tag.color, fontSize: 12, fontWeight: 500 }}>
                   {tag.name}
+                  {used > 0 && (
+                    <span style={{ opacity: 0.65, fontWeight: 400 }}>{used}</span>
+                  )}
                   <button
                     type="button"
+                    disabled={used > 0}
+                    title={used > 0
+                      ? `In use by ${used} expense${used === 1 ? '' : 's'} — cannot be deleted`
+                      : 'Delete this tag'}
                     onClick={() => handleDeleteTag(tag._id)}
-                    style={{ background: 'none', border: 'none', color: tag.color, cursor: 'pointer', padding: '0 0 0 2px', fontSize: 14, lineHeight: 1 }}
+                    style={{ background: 'none', border: 'none', color: tag.color, cursor: used > 0 ? 'not-allowed' : 'pointer', opacity: used > 0 ? 0.35 : 1, padding: '0 0 0 2px', fontSize: 14, lineHeight: 1 }}
                   >
                     ×
                   </button>
                 </span>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -414,7 +479,38 @@ export default function ExpensesTab() {
         </div>
 
         {/* Stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
+          {pendingCount > 0 && (
+            <div
+              className="card"
+              style={{ padding: '16px 20px', cursor: 'pointer' }}
+              onClick={() => setPeriod('all')}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setPeriod('all'); } }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--warning)' }}>{pendingCount}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                    Awaiting approval{isSuperAdmin ? ' · click to show all' : ''}
+                  </div>
+                </div>
+                {isSuperAdmin && (
+                  <div style={{ flex: '0 0 auto' }} onClick={(ev) => ev.stopPropagation()}>
+                    <button
+                      className="btn-primary btn-sm"
+                      disabled={pendingInView.length === 0}
+                      title={pendingInView.length === 0 ? 'Nothing pending in this view — widen the period' : undefined}
+                      onClick={() => setApproveAllOpen(true)}
+                    >
+                      Approve all{pendingInView.length ? ` (${pendingInView.length})` : ''}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           <div className="card" style={{ padding: '16px 20px' }}>
             <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--primary-dark)' }}>{filtered.length}</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
@@ -540,6 +636,19 @@ export default function ExpensesTab() {
             <button className="btn-ghost" style={{ width: '100%', marginTop: 12 }} onClick={() => setFormOpen(false)}>Cancel</button>
           </div>
         </div>
+      )}
+
+      {approveAllOpen && (
+        <ApproveAllDialog
+          rows={pendingInView}
+          scope={scopeLabel}
+          noun="expense"
+          amountKey="amount"
+          labelOf={(rec) => rec.description || rec.tags?.map((t) => t.name).join(', ')}
+          busy={approvingAll}
+          onConfirm={approveAll}
+          onCancel={() => setApproveAllOpen(false)}
+        />
       )}
     </div>
   );

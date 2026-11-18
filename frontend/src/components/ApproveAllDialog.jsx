@@ -9,8 +9,14 @@ const PREVIEW = 8;
  * that produced the set, and the first few rows by name. A bare "are you sure?" would not
  * tell anyone whether the period they left set last week is still in effect.
  */
-export default function ApproveAllDialog({ rows, scope, noun, partyKey, busy, onConfirm, onCancel }) {
-  const total = rows.reduce((sum, r) => sum + (Number(r.grandTotal) || 0), 0);
+export default function ApproveAllDialog({
+  rows, scope, noun, partyKey, amountKey = 'grandTotal', labelOf, busy, onConfirm, onCancel,
+}) {
+  // Purchases and sales carry a grandTotal and a party; expenses and income carry a plain
+  // amount and often no description at all, so what names a row is left to the caller.
+  const amountOf = (r) => Number(r[amountKey]) || 0;
+  const nameOf = (r) => (labelOf ? labelOf(r) : r[partyKey]);
+  const total = rows.reduce((sum, r) => sum + amountOf(r), 0);
 
   return (
     <div
@@ -45,9 +51,9 @@ export default function ApproveAllDialog({ rows, scope, noun, partyKey, busy, on
                 {new Date(r.createdAt).toLocaleDateString()}
               </span>
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {r[partyKey] || '—'}
+                {nameOf(r) || '—'}
               </span>
-              <strong style={{ whiteSpace: 'nowrap' }}>{money(r.grandTotal)}</strong>
+              <strong style={{ whiteSpace: 'nowrap' }}>{money(amountOf(r))}</strong>
             </li>
           ))}
         </ul>
